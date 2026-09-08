@@ -16,6 +16,7 @@ import db from '../db/connection.js';
 import { grantLaunchOfferIfEligible, getUserWithFreshPlanState } from '../services/subscriptionService.js';
 import { sendServerError } from '../utils/errors.js';
 import { sendRealtimeNotification } from '../socket/notifications.js';
+import { getAnonClient, getAdminClient } from '../lib/supabase.js';
 
 const router = Router();
 router.use(rateLimiter(config.RATE_LIMIT.AUTH));
@@ -37,7 +38,11 @@ function maskEmail(email) {
 }
 
 // Helper: issue session tokens
-async function issueSession(user, req, res, extraData = {}) {
+// supabaseSession (optional): when the email/password path authenticated
+// via Supabase Auth, pass its { access_token, refresh_token } here instead
+// of minting our own -- the response envelope stays identical either way,
+// so the frontend needs no knowledge of which system issued the tokens.
+async function issueSession(user, req, res, extraData = {}, supabaseSession = null) {
   const io            = req.app.get('io');
   // Fresh plan-state read (not the raw `user` row) so a subscription that
   // expired since the last login is corrected right here at sign-in time,
@@ -46,8 +51,8 @@ async function issueSession(user, req, res, extraData = {}) {
   const pet          = await PetRepo.getActivePet(user.id);
   const allPets      = await PetRepo.findAllByUserId(user.id);
   const deviceInfo   = req.headers['user-agent'] || 'unknown';
-  const accessToken  = generateAccessToken(user);
-  const refreshToken = await generateRefreshToken(user, deviceInfo);
+  const accessToken  = supabaseSession ? supabaseSession.access_token  : generateAccessToken(user);
+  const refreshToken = supabaseSession ? supabaseSession.refresh_token : await generateRefreshToken(user, deviceInfo);
   return res.json({
     user: {
       id: user.id,
@@ -182,17 +187,36 @@ router.post('/google', async (req, res) => {
     let fullName = bodyName  || '';
 
     if (credential) {
+      if (!config.GOOGLE_CLIENT_ID) {
+        // Never silently accept a Google token without an audience check --
+        // that would let anyone log in with an ID token issued to ANY
+        // Google OAuth app for their account, not just this one.
+        console.error('[/auth/google] GOOGLE_CLIENT_ID is not configured -- refusing to verify Google tokens');
+        return res.status(503).json({ error: 'GOOGLE_NOT_CONFIGURED', message: 'Google Sign-In is not available right now.' });
+      }
+
       const verifyRes = await fetch(
         `https://oauth2.googleapis.com/tokeninfo?id_token=${credential}`,
         { signal: AbortSignal.timeout(8000) }
       );
       const payload = await verifyRes.json();
 
+      // tokeninfo already validates the signature and rejects an expired
+      // token (payload.error === 'invalid_token' in that case), but aud/iss
+      // are OUR app's checks, not Google's -- tokeninfo will happily
+      // "verify" a perfectly valid token issued to a completely different
+      // Google OAuth client or a different identity provider.
       if (!verifyRes.ok || payload.error) {
         return res.status(401).json({ error: 'INVALID_TOKEN', message: payload.error_description || 'Google token verification failed' });
       }
-      if (config.GOOGLE_CLIENT_ID && payload.aud !== config.GOOGLE_CLIENT_ID) {
+      if (payload.aud !== config.GOOGLE_CLIENT_ID) {
         return res.status(401).json({ error: 'WRONG_AUDIENCE', message: 'Token audience mismatch' });
+      }
+      if (payload.iss !== 'https://accounts.google.com' && payload.iss !== 'accounts.google.com') {
+        return res.status(401).json({ error: 'WRONG_ISSUER', message: 'Token not issued by Google' });
+      }
+      if (payload.email_verified !== 'true' && payload.email_verified !== true) {
+        return res.status(401).json({ error: 'EMAIL_NOT_VERIFIED', message: "Google account's email is not verified" });
       }
       email    = payload.email || email;
       fullName = payload.name  || fullName;
@@ -214,54 +238,11 @@ router.post('/google', async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════
-// APPLE  /api/auth/apple
-// ═══════════════════════════════════════════════════════════════
-router.post('/apple', async (req, res) => {
-  try {
-    const { id_token, email: bodyEmail, full_name: bodyName } = req.body;
-    if (!id_token) return res.status(400).json({ error: 'NO_TOKEN', message: 'Apple id_token required' });
-
-    let email = bodyEmail || '';
-    let fullName = bodyName || '';
-    let apple_sub = '';
-
-    try {
-      const parts = id_token.split('.');
-      if (parts.length === 3) {
-        const pad = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-        const payload = JSON.parse(Buffer.from(pad, 'base64').toString('utf8'));
-        email    = payload.email || email;
-        apple_sub = payload.sub  || '';
-
-        if (payload.exp && Date.now() / 1000 > payload.exp) {
-          return res.status(401).json({ error: 'TOKEN_EXPIRED', message: 'Apple token has expired' });
-        }
-        if (payload.iss && payload.iss !== 'https://appleid.apple.com') {
-          return res.status(401).json({ error: 'WRONG_ISSUER', message: 'Token not from Apple' });
-        }
-      }
-    } catch (decodeErr) {
-      return res.status(400).json({ error: 'MALFORMED_TOKEN', message: 'Could not decode Apple token' });
-    }
-
-    if (!email && !apple_sub) {
-      return res.status(400).json({ error: 'NO_IDENTITY', message: 'Apple token contains no email or subject' });
-    }
-
-    const { user, isNew, prefill } = await findOrPrepSocialUser(email, fullName, 'apple');
-    if (!isNew) return await issueSession(user, req, res);
-    return res.status(200).json({ needsSignup: true, prefill });
-
-  } catch (err) {
-    console.error('[/auth/apple]', err);
-    res.status(500).json({ error: 'SERVER_ERROR', message: 'Apple authentication encountered a problem.' });
-  }
-});
-
-// ═══════════════════════════════════════════════════════════════
 // SOCIAL COMPLETE
-// Google/Apple already verify the person's email ownership before we
-// ever see it, so accounts created via these paths are auto-verified.
+// Google already verifies the person's email ownership before we ever
+// see it, so accounts created via this path are auto-verified.
+// (Apple Sign-In removed for now -- was never wired into the frontend UI,
+// see git history if it needs to come back later.)
 // ═══════════════════════════════════════════════════════════════
 router.post('/social-complete', async (req, res) => {
   try {
@@ -330,8 +311,28 @@ router.post('/signup', async (req, res) => {
       return res.status(400).json({ error: 'VALIDATION_ERROR', errors });
     }
 
-    const password_hash = await bcrypt.hash(password, 12);
+    // Password custody now lives in Supabase Auth, not this app -- create
+    // the Supabase identity first (source of truth for the credential),
+    // then our own users row links to it via auth_user_id. email_confirm:
+    // true means Supabase itself won't send its own confirmation email;
+    // our existing custom-branded verification flow (triggerVerificationEmail
+    // below) still runs exactly as before and still gates whatever features
+    // email_verified controls -- the two are deliberately independent.
+    const { data: authData, error: authErr } = await getAdminClient().auth.admin.createUser({
+      email, password, email_confirm: true,
+    });
+    if (authErr || !authData?.user) {
+      console.error('[signup] Supabase Auth user creation failed:', authErr?.message);
+      return res.status(500).json({ error: 'SERVER_ERROR', message: 'Registration encountered a problem.' });
+    }
+
+    // password_hash is schema-required (NOT NULL) but never read for a
+    // Supabase-backed account (auth_user_id set) -- same "unusable random
+    // hash" placeholder already used for Google/Apple social signups.
+    const password_hash = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 12);
     const user = await UserRepo.create({ email, username, password_hash, full_name: full_name.trim() });
+    await db.run('UPDATE users SET auth_user_id = ? WHERE id = ?', [authData.user.id, user.id]);
+    user.auth_user_id = authData.user.id;
 
     // Launch offer: first 100 signups get free Sniffr Gold. COUNT(*) here
     // includes the row just inserted above, so "count <= limit" is exactly
@@ -345,8 +346,16 @@ router.post('/signup', async (req, res) => {
     // version instead, since by then they're not "new" anymore.
     const verificationResult = await triggerVerificationEmail(user, { isWelcome: true });
 
-    return await issueSession(user, req, res, { verificationCooldownUntil: verificationResult.cooldownUntil });
+    // Real session, minted by Supabase (admin.createUser doesn't return one).
+    const { data: signInData, error: signInErr } = await getAnonClient().auth.signInWithPassword({ email, password });
+    if (signInErr || !signInData?.session) {
+      console.error('[signup] Post-signup sign-in failed:', signInErr?.message);
+      return res.status(500).json({ error: 'SERVER_ERROR', message: 'Account created, but starting your session failed -- please sign in.' });
+    }
+
+    return await issueSession(user, req, res, { verificationCooldownUntil: verificationResult.cooldownUntil }, signInData.session);
   } catch (err) {
+    console.error('[signup]', err);
     res.status(500).json({ error: 'SERVER_ERROR', message: 'Registration encountered a problem.' });
   }
 });
@@ -434,7 +443,19 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'NOT_FOUND', message: "🐾 We couldn't sniff out that account." });
     }
 
-    if (!(await bcrypt.compare(password, user.password_hash))) {
+    // Migrated (or newly signed-up) accounts have auth_user_id set and
+    // authenticate via Supabase Auth. Accounts not yet migrated (the
+    // one-time migration script hasn't run for them yet) fall back to the
+    // original bcrypt check -- this is what makes the migration safe to
+    // run without forcing every existing user to reset their password.
+    let supabaseSession = null;
+    if (user.auth_user_id) {
+      const { data, error } = await getAnonClient().auth.signInWithPassword({ email: user.email, password });
+      if (error || !data?.session) {
+        return res.status(401).json({ error: 'BAD_PASSWORD', message: "🐾 That password doesn't match our records. Give it another sniff." });
+      }
+      supabaseSession = data.session;
+    } else if (!(await bcrypt.compare(password, user.password_hash))) {
       return res.status(401).json({ error: 'BAD_PASSWORD', message: "🐾 That password doesn't match our records. Give it another sniff." });
     }
 
@@ -448,7 +469,15 @@ router.post('/login', async (req, res) => {
         if (!process.env.SMTP_USER) console.log(`[DEV ONLY] PawPrint code for ${user.email}: ${code}`);
         sendPawCodeEmail(user.email, code).catch(err => console.error("[sendPawCodeEmail error]:", err.message));
 
-        const tempToken = jwt.sign({ id: user.id, is2FATemp: true }, config.JWT_ACCESS_SECRET, { expiresIn: '10m' });
+        // The password was already verified above (Supabase or bcrypt,
+        // whichever applies) -- if that was a Supabase session, its tokens
+        // ride along inside this short-lived tempToken so /2fa/verify-login
+        // can complete the session without re-asking for the password.
+        const tempToken = jwt.sign(
+          { id: user.id, is2FATemp: true, sat: supabaseSession?.access_token, srt: supabaseSession?.refresh_token },
+          config.JWT_ACCESS_SECRET,
+          { expiresIn: '10m' }
+        );
         return res.json({
           requires2FA: true,
           tempToken,
@@ -457,7 +486,7 @@ router.post('/login', async (req, res) => {
       }
     }
 
-    return await issueSession(user, req, res);
+    return await issueSession(user, req, res, {}, supabaseSession);
   } catch (err) {
     console.error('[LOGIN ERROR]:', err);
     res.status(500).json({ error: 'SERVER_ERROR', message: 'Sign in encountered a problem.' });
@@ -648,7 +677,8 @@ router.post('/2fa/verify-login', async (req, res) => {
       await UserRepo.addTrustedDevice(user.id, newDeviceToken, deviceInfo, expiresAt);
     }
 
-    return await issueSession(user, req, res, { deviceToken: newDeviceToken });
+    const supabaseSession = decoded.sat ? { access_token: decoded.sat, refresh_token: decoded.srt } : null;
+    return await issueSession(user, req, res, { deviceToken: newDeviceToken }, supabaseSession);
   } catch (err) {
     console.error('[/2fa/verify-login error]:', err);
     res.status(500).json({ error: 'SERVER_ERROR', message: 'Verification failed.' });
@@ -773,8 +803,26 @@ router.post('/reset-password', async (req, res) => {
       return res.status(400).json({ error: 'VALIDATION_ERROR', errors });
     }
 
-    const password_hash = await bcrypt.hash(password, 12);
-    await UserRepo.updatePassword(user.id, password_hash);
+    if (user.auth_user_id) {
+      // Migrated/Supabase-backed account -- the real password lives in
+      // Supabase now. password_hash is still updated too (harmless, keeps
+      // the NOT NULL column populated) but is never read for this account.
+      const { error } = await getAdminClient().auth.admin.updateUserById(user.auth_user_id, { password });
+      if (error) {
+        console.error('[reset-password] Supabase update failed:', error.message);
+        return res.status(500).json({ error: 'SERVER_ERROR', message: 'Password reset encountered a problem.' });
+      }
+      // Note: Supabase has no "revoke all sessions by user id" without an
+      // existing valid access token to submit (this is a forgot-password
+      // flow -- the user has none). Already-issued access tokens remain
+      // valid until their own (short) expiry; only future refreshes are
+      // blocked once a new password is set. See change-password below for
+      // the fully-revoking version, usable when the user has an active
+      // session token to pass along.
+    } else {
+      const password_hash = await bcrypt.hash(password, 12);
+      await UserRepo.updatePassword(user.id, password_hash);
+    }
     await UserRepo.clearResetToken(user.id);
 
     return res.json({ message: "🐾 Password updated successfully. Try signing in!" });
@@ -794,8 +842,12 @@ router.post('/change-password', authenticateAccess, async (req, res) => {
       return res.status(400).json({ error: 'VALIDATION_ERROR', errors: [{ field: 'currentPassword', message: 'Current password is required' }] });
     }
 
-    const isMatch = await bcrypt.compare(currentPassword, user.password_hash);
-    if (!isMatch) {
+    if (user.auth_user_id) {
+      const { error: verifyErr } = await getAnonClient().auth.signInWithPassword({ email: user.email, password: currentPassword });
+      if (verifyErr) {
+        return res.status(400).json({ error: 'VALIDATION_ERROR', errors: [{ field: 'currentPassword', message: 'Incorrect current password' }] });
+      }
+    } else if (!(await bcrypt.compare(currentPassword, user.password_hash))) {
       return res.status(400).json({ error: 'VALIDATION_ERROR', errors: [{ field: 'currentPassword', message: 'Incorrect current password' }] });
     }
 
@@ -815,8 +867,27 @@ router.post('/change-password', authenticateAccess, async (req, res) => {
       return res.status(400).json({ error: 'VALIDATION_ERROR', errors });
     }
 
-    const password_hash = await bcrypt.hash(newPassword, 12);
-    await UserRepo.updatePassword(user.id, password_hash);
+    if (user.auth_user_id) {
+      const { error } = await getAdminClient().auth.admin.updateUserById(user.auth_user_id, { password: newPassword });
+      if (error) return sendServerError(res, new Error(error.message));
+      // Unlike reset-password, we DO have a live access token here -- use
+      // it to revoke every OTHER session for this user right now (closes
+      // the exact gap flagged earlier: a stolen session staying valid
+      // through a password change), while leaving the device that just
+      // made this request logged in ('others', not 'global' -- the user
+      // shouldn't be logged out of their own change-password action).
+      // Best-effort: the password change itself already succeeded
+      // regardless of this outcome.
+      const accessToken = req.headers.authorization?.split(' ')[1];
+      if (accessToken) {
+        await getAdminClient().auth.admin.signOut(accessToken, 'others').catch(err => {
+          console.error('[change-password] Supabase signOut failed:', err.message);
+        });
+      }
+    } else {
+      const password_hash = await bcrypt.hash(newPassword, 12);
+      await UserRepo.updatePassword(user.id, password_hash);
+    }
 
     return res.json({ success: true, message: 'Password updated successfully!' });
   } catch (err) {
@@ -831,16 +902,27 @@ router.post('/refresh', async (req, res) => {
     if (!refreshToken) return res.status(400).json({ error: 'NO_TOKEN' });
 
     const record = await verifyRefreshToken(refreshToken);
-    if (!record) return res.status(401).json({ error: 'INVALID_REFRESH', message: 'Invalid or expired refresh token' });
+    if (record) {
+      // Existing custom-JWT path (Google Sign-In users) -- unchanged.
+      await revokeRefreshToken(refreshToken);
+      const user = await UserRepo.findById(record.user_id);
+      if (!user) return res.status(401).json({ error: 'USER_NOT_FOUND' });
 
-    await revokeRefreshToken(refreshToken);
-    const user = await UserRepo.findById(record.user_id);
+      const newAccessToken  = generateAccessToken(user);
+      const newRefreshToken = await generateRefreshToken(user, record.device_info);
+      return res.json({ accessToken: newAccessToken, refreshToken: newRefreshToken });
+    }
+
+    // Not a token we issued -- try it as a Supabase Auth refresh token
+    // (email/password path). Supabase refresh tokens rotate on use too,
+    // same guarantee the custom path already had.
+    const { data, error } = await getAnonClient().auth.refreshSession({ refresh_token: refreshToken });
+    if (error || !data?.session) {
+      return res.status(401).json({ error: 'INVALID_REFRESH', message: 'Invalid or expired refresh token' });
+    }
+    const user = await db.get('SELECT id, email FROM users WHERE auth_user_id = ?', [data.session.user.id]);
     if (!user) return res.status(401).json({ error: 'USER_NOT_FOUND' });
-
-    const deviceInfo      = record.device_info;
-    const newAccessToken  = generateAccessToken(user);
-    const newRefreshToken = await generateRefreshToken(user, deviceInfo);
-    res.json({ accessToken: newAccessToken, refreshToken: newRefreshToken });
+    res.json({ accessToken: data.session.access_token, refreshToken: data.session.refresh_token });
   } catch (err) {
     res.status(500).json({ error: 'SERVER_ERROR', message: 'Token refresh encountered a problem.' });
   }
@@ -850,7 +932,22 @@ router.post('/refresh', async (req, res) => {
 router.post('/logout', authenticateAccess, async (req, res) => {
   try {
     const { refreshToken } = req.body;
-    if (refreshToken) await revokeRefreshToken(refreshToken);
+    const user = await UserRepo.findById(req.user.id);
+    if (user?.auth_user_id) {
+      // Supabase Auth path -- revoke only THIS session ('local'), matching
+      // the existing custom-JWT logout's per-device semantics (it only
+      // ever revoked the one refresh token the client sent, not every
+      // device). Best-effort: logout must still succeed client-side even
+      // if this call fails.
+      const accessToken = req.headers.authorization?.split(' ')[1];
+      if (accessToken) {
+        await getAdminClient().auth.admin.signOut(accessToken, 'local').catch(err => {
+          console.error('[logout] Supabase signOut failed:', err.message);
+        });
+      }
+    } else if (refreshToken) {
+      await revokeRefreshToken(refreshToken);
+    }
     res.json({ message: 'Logged out' });
   } catch (err) {
     res.status(500).json({ error: 'SERVER_ERROR', message: 'Logout encountered a problem.' });

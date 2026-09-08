@@ -1,10 +1,43 @@
 import CallRepo from '../models/CallRepository.js';
 import PetRepo from '../models/PetRepository.js';
+import UserRepo from '../models/UserRepository.js';
 
 // User call availability: userId -> 'available' | 'busy' | 'in-call'
 const userCallState = new Map();
-// Active calls: callId -> { from, to, callerPetId, receiverPetId, type, start_time, startedAt, answered }
+// Active calls: callId -> { from, to, callerPetId, receiverPetId, type, start_time, startedAt, answered, ringTimeout }
 const activeCalls = new Map();
+
+// How long an outgoing call rings before it's auto-cancelled as unanswered.
+// Previously nothing expired an unanswered call server-side -- if the
+// receiving client's app was killed/backgrounded and never sent
+// call_reject, the caller's UI (and the callee's call_incoming) could be
+// left ringing indefinitely with no server-driven cleanup.
+const RING_TIMEOUT_MS = 45 * 1000;
+
+async function endUnansweredCall(io, callId, status) {
+  const call = activeCalls.get(callId);
+  if (!call) return;
+  activeCalls.delete(callId);
+  userCallState.set(call.from, 'available');
+  userCallState.set(call.to, 'available');
+
+  try {
+    await CallRepo.log({
+      callerPetId: call.callerPetId,
+      receiverPetId: call.receiverPetId,
+      type: call.type,
+      status,
+      duration: 0,
+      start_time: call.start_time,
+      end_time: new Date().toISOString()
+    });
+  } catch (err) {
+    console.error('Call timeout logging failed:', err.message);
+  }
+
+  io.to(`user_${call.from}`).emit('call_timeout', { callId });
+  io.to(`user_${call.to}`).emit('call_timeout', { callId });
+}
 
 export function setupCallSocket(io) {
   io.on('connection', (socket) => {
@@ -23,6 +56,13 @@ export function setupCallSocket(io) {
         return socket.emit('call_busy', { userId: to });
       }
 
+      // A block should stop calls the same way it already stops
+      // chat/swipe/share (see AUDIT_REPORT.md) -- without this, a blocked
+      // user could still voice/video-call the person who blocked them.
+      if (await UserRepo.isBlocked(userId, to)) {
+        return socket.emit('call_error', { message: 'You cannot call this user' });
+      }
+
       const callerPet = await PetRepo.getActivePet(userId);
       const receiverPet = await PetRepo.getActivePet(to);
       if (!callerPet || !receiverPet) {
@@ -30,6 +70,7 @@ export function setupCallSocket(io) {
       }
 
       const callId = `${userId}_${to}_${Date.now()}`;
+      const ringTimeout = setTimeout(() => endUnansweredCall(io, callId, 'missed'), RING_TIMEOUT_MS);
       activeCalls.set(callId, {
         from: userId,
         to,
@@ -38,7 +79,8 @@ export function setupCallSocket(io) {
         type,
         start_time: new Date().toISOString(),
         startedAt: null,
-        answered: false
+        answered: false,
+        ringTimeout
       });
 
       userCallState.set(userId, 'busy');
@@ -63,6 +105,7 @@ export function setupCallSocket(io) {
     socket.on('call_accept', ({ callId }) => {
       const call = activeCalls.get(callId);
       if (!call) return;
+      clearTimeout(call.ringTimeout);
       call.startedAt = Date.now();
       call.answered = true;
 
@@ -76,6 +119,7 @@ export function setupCallSocket(io) {
     socket.on('call_reject', async ({ callId, reason }) => {
       const call = activeCalls.get(callId);
       if (!call) return;
+      clearTimeout(call.ringTimeout);
 
       userCallState.set(call.from, 'available');
       userCallState.set(call.to, 'available');
@@ -103,6 +147,7 @@ export function setupCallSocket(io) {
     socket.on('call_end', async ({ callId }) => {
       const call = activeCalls.get(callId);
       if (!call) return;
+      clearTimeout(call.ringTimeout);
 
       userCallState.set(call.from, 'available');
       userCallState.set(call.to, 'available');
@@ -128,13 +173,28 @@ export function setupCallSocket(io) {
       io.to(`user_${call.to}`).emit('call_ended', { callId });
     });
 
+    // Signaling relays are restricted to two sockets that actually have an
+    // active call between them -- without this, any authenticated socket
+    // could send a bare webrtc_offer/ice_candidate to any userId and get
+    // relayed straight into their call UI, with no call having ever been
+    // initiated/accepted through call_initiate/call_accept.
+    function hasActiveCallWith(a, b) {
+      for (const call of activeCalls.values()) {
+        if ((call.from === a && call.to === b) || (call.from === b && call.to === a)) return true;
+      }
+      return false;
+    }
+
     socket.on('webrtc_offer', ({ to, sdp }) => {
+      if (!hasActiveCallWith(userId, to)) return;
       io.to(`user_${to}`).emit('webrtc_offer', { from: userId, sdp });
     });
     socket.on('webrtc_answer', ({ to, sdp }) => {
+      if (!hasActiveCallWith(userId, to)) return;
       io.to(`user_${to}`).emit('webrtc_answer', { from: userId, sdp });
     });
     socket.on('webrtc_ice_candidate', ({ to, candidate }) => {
+      if (!hasActiveCallWith(userId, to)) return;
       io.to(`user_${to}`).emit('webrtc_ice_candidate', { from: userId, candidate });
     });
 
@@ -142,12 +202,14 @@ export function setupCallSocket(io) {
     // remote party's UI show "X is muted" instead of just going silent
     // with no indication of why.
     socket.on('call_mute_state', ({ to, muted }) => {
+      if (!hasActiveCallWith(userId, to)) return;
       io.to(`user_${to}`).emit('call_mute_state', { from: userId, muted });
     });
 
     socket.on('disconnect', async () => {
       for (const [callId, call] of activeCalls) {
         if (call.from === userId || call.to === userId) {
+          clearTimeout(call.ringTimeout);
           const other = call.from === userId ? call.to : call.from;
           userCallState.set(other, 'available');
           activeCalls.delete(callId);

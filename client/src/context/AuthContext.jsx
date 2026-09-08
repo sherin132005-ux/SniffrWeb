@@ -30,7 +30,7 @@ export function AuthProvider({ children }) {
   // IMPORTANT: this is now the ONE place that fully applies a successful
   // auth response (tokens + user + pet + allPets + localStorage cache)
   // to React state. Every login path -- email/password, 2FA, Google,
-  // Apple, social-complete -- MUST call this after getting a response
+  // social-complete -- MUST call this after getting a response
   // back from the server, instead of manually poking localStorage/
   // api.setAccessToken and skipping the setUser/setPet/setAllPets calls.
   //
@@ -148,7 +148,7 @@ export function AuthProvider({ children }) {
   return data;
 };
 
-  // ─── Social login (Google / Apple) via the internal /auth/social route ──
+  // ─── Social login (Google) via the internal /auth/social route ──
   const socialLogin = async ({ provider, credential, id_token, email, full_name }) => {
     const data = await api.post('/auth/social', { provider, credential, id_token, email, full_name });
 

@@ -58,6 +58,8 @@ export default {
   MAX_FILE_SIZE: 10 * 1024 * 1024,
   ALLOWED_IMAGE_TYPES: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
   ALLOWED_VIDEO_TYPES: ['video/mp4', 'video/webm', 'video/quicktime'],
+  // Voice notes (ChatPage.jsx records via MediaRecorder as 'audio/webm').
+  ALLOWED_AUDIO_TYPES: ['audio/webm', 'audio/mp4', 'audio/mpeg', 'audio/ogg', 'audio/wav'],
   RATE_LIMIT: {
     AUTH: { windowMs: 60000, max: 20 },
     POST: { windowMs: 60000, max: 10 },
@@ -71,16 +73,35 @@ export default {
   // ── OAuth credentials (filled from .env) ─────────────────────
   GOOGLE_CLIENT_ID:     process.env.GOOGLE_CLIENT_ID     || '',
   GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET || '',
-  APPLE_SERVICE_ID:     process.env.APPLE_SERVICE_ID     || '',
-  APPLE_TEAM_ID:        process.env.APPLE_TEAM_ID        || '',
-  APPLE_KEY_ID:         process.env.APPLE_KEY_ID         || '',
-  APPLE_PRIVATE_KEY:    process.env.APPLE_PRIVATE_KEY    || '',
+
+  // ── Supabase Auth (email/password login path only -- Google Sign-In
+  // keeps using the existing custom JWT, untouched) ──────────────
+  // SUPABASE_URL/ANON_KEY are not secret (same values a browser client
+  // would use); SERVICE_ROLE_KEY grants full admin access and must never
+  // reach the frontend or be logged -- server-only, from Supabase
+  // dashboard: Settings -> API -> service_role key.
+  SUPABASE_URL:              process.env.SUPABASE_URL              || '',
+  SUPABASE_ANON_KEY:         process.env.SUPABASE_ANON_KEY         || '',
+  SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
 
   // ── Cloudinary (media storage) ────────────────────────────────
 
   CLOUDINARY_CLOUD_NAME:   process.env.CLOUDINARY_CLOUD_NAME   || '',
   CLOUDINARY_API_KEY:      process.env.CLOUDINARY_API_KEY      || '',
   CLOUDINARY_API_SECRET:   process.env.CLOUDINARY_API_SECRET   || '',
+
+  // ── Per-plan Cloudinary storage quota (bytes) ──────────────────
+  // Single source of truth for "how much media can this user store" --
+  // change these numbers to change every user's default quota at once.
+  // A per-user override lives in users.storage_quota_override_bytes
+  // (nullable; NULL means "use the plan default below") for one-off
+  // exceptions without touching this config. See services/mediaService.js.
+  STORAGE_QUOTA_BYTES: {
+    free:     150  * 1024 * 1024,   // 150 MB
+    plus:     500  * 1024 * 1024,   // 500 MB (paid/premium)
+    gold:     5    * 1024 * 1024 * 1024, // 5 GB
+    platinum: 20   * 1024 * 1024 * 1024, // 20 GB
+  },
 
   // ── WebRTC TURN relay (1:1 calls) ─────────────────────────────
   // STUN alone (see server/routes/calls.js) can't traverse symmetric NAT,

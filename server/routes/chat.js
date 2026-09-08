@@ -6,7 +6,7 @@ import MessageRepo from '../models/MessageRepository.js';
 import CallRepo from '../models/CallRepository.js';
 import PetRepo from '../models/PetRepository.js';
 import UserRepo from '../models/UserRepository.js';
-import storage from '../storage/index.js';
+import { uploadWithQuota } from '../services/mediaService.js';
 import config from '../config.js';
 import { sendServerError } from '../utils/errors.js';
 
@@ -16,7 +16,11 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: config.MAX_FILE_SIZE },
   fileFilter: (req, file, cb) => {
-    const allowed = [...config.ALLOWED_IMAGE_TYPES, ...config.ALLOWED_VIDEO_TYPES];
+    // Includes ALLOWED_AUDIO_TYPES -- without it, voice notes (audio/webm)
+    // were silently dropped by this filter: Multer just skips a rejected
+    // file with no error, so the message got created with no media
+    // attached at all, which is why it could never play back.
+    const allowed = [...config.ALLOWED_IMAGE_TYPES, ...config.ALLOWED_VIDEO_TYPES, ...config.ALLOWED_AUDIO_TYPES];
     cb(null, allowed.includes(file.mimetype));
   }
 });
@@ -104,9 +108,10 @@ router.post('/messages', rateLimiter(config.RATE_LIMIT.POST), upload.single('med
     let mediaUrl = null;
     let messageType = 'text';
     if (req.file) {
-      const filePath = await storage.upload(req.file, 'chat');
-      mediaUrl = storage.getUrl(filePath);
-      messageType = req.file.mimetype.startsWith('video') ? 'video' : 'image';
+      const uploaded = await uploadWithQuota(req.user.id, req.file, 'chat');
+      mediaUrl = uploaded.url;
+      messageType = req.file.mimetype.startsWith('audio') ? 'voice'
+        : req.file.mimetype.startsWith('video') ? 'video' : 'image';
     }
 
     const message = await MessageRepo.sendMessage(parseInt(conversationId), req.user.id, content || '', mediaUrl, messageType);

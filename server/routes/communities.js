@@ -4,7 +4,7 @@ import CommunityRepo from '../models/CommunityRepository.js';
 import PetRepo from '../models/PetRepository.js';
 import { authenticateAccess } from '../middleware/auth.js';
 import { rateLimiter } from '../middleware/rateLimiter.js';
-import storage from '../storage/index.js';
+import { uploadWithQuota } from '../services/mediaService.js';
 import config from '../config.js';
 import db from '../db/connection.js';
 import { sendRealtimeNotification } from '../socket/notifications.js';
@@ -419,8 +419,8 @@ router.post('/:id/messages', rateLimiter(config.RATE_LIMIT.POST), upload.single(
       if (isImage && req.file.size > MAX_IMAGE_SIZE) {
         return res.status(400).json({ error: 'FILE_TOO_LARGE', message: 'Image must be under 10MB.' });
       }
-      const filePath = await storage.upload(req.file, 'community_media');
-      media_url = storage.getUrl(filePath);
+      const uploaded = await uploadWithQuota(req.user.id, req.file, 'community_media');
+      media_url = uploaded.url;
     }
 
     if (!content && !media_url) return res.status(400).json({ error: 'MISSING_CONTENT' });
@@ -474,8 +474,8 @@ router.post('/:id/photos', rateLimiter(config.RATE_LIMIT.POST), upload.single('m
       return res.status(400).json({ error: 'FILE_TOO_LARGE', message: 'Image must be under 10MB.' });
     }
 
-    const filePath = await storage.upload(req.file, 'community_photos');
-    const media_url = storage.getUrl(filePath);
+    const uploaded = await uploadWithQuota(req.user.id, req.file, 'community_photos');
+    const media_url = uploaded.url;
 
     const photo = await CommunityRepo.addPhoto({
       community_id: communityId,

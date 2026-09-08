@@ -6,6 +6,14 @@ import config from '../config.js';
 // NODE_ENV=development. Previously every route inlined `err.message`
 // directly into the response in every environment -- see AUDIT_REPORT.md.
 export function sendServerError(res, err, status = 500) {
+  if (err.name === 'QuotaExceededError') {
+    return res.status(413).json({
+      error: 'QUOTA_EXCEEDED',
+      message: 'Storage quota exceeded. Delete some media or upgrade your plan.',
+      usedBytes: err.usedBytes,
+      quotaBytes: err.quotaBytes,
+    });
+  }
   console.error('[SERVER_ERROR]', err);
   const message = config.NODE_ENV === 'development'
     ? err.message

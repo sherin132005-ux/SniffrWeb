@@ -8,9 +8,9 @@
     "build": "vite build",
     "preview": "vite preview",
     "cap:add": "npx cap add android",
-    "cap:sync": "npm run build && npx cap sync android",
+    "cap:sync": "vite build --mode capacitor && npx cap sync android",
     "cap:open": "npx cap open android",
-    "cap:build": "npm run build && npx cap sync android && npx cap open android"
+    "cap:build": "vite build --mode capacitor && npx cap sync android && npx cap open android"
   },
   "dependencies": {
     "@capacitor/android": "^8.3.4",

@@ -33,7 +33,6 @@ Sniffr-main/
 │   paws_chat/, pet_selection/, privacy_policy/, sign_up_*/, spotlight/,
 │   terms_conditions/, velvet_paws/            Static Stitch/design-export HTML mockups (reference only, not built/served by the app)
 │
-├── railway.toml              Railway deployment config for the server
 └── walkthrough.md            Changelog-style notes from a past feature checkpoint
 ```
 
@@ -181,7 +180,7 @@ npm run cap:build   # build + sync + open in one step
 
 ## Deployment
 
-The server is configured for [Railway](https://railway.app) (`railway.toml`): set the Railway service's **Root Directory** to `server`, and it will run `node index.js` on `nixpacks`, restarting on failure (up to 5 retries). The client is a static Vite build (`client/dist`) that can be hosted on any static host/CDN, with `VITE_API_URL` pointed at the deployed server.
+The server is deployed on [Render](https://render.com) as a Web Service: set the service's **Root Directory** to `server`, build command `npm install`, start command `node index.js`. The client is a static Vite build (`client/dist`) that can be hosted on any static host/CDN, with `VITE_API_URL` pointed at the deployed Render server.
 
 ---
 

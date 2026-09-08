@@ -1,13 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Cleartext HTTP is only permitted for the local dev server (emulator/device
+     testing against `npm run dev`). Production traffic goes to the deployed
+     backend over HTTPS only -- base-config below denies cleartext globally.
+     Domain here matches vite.config.js's dev proxy target (Render); update
+     it if the production backend host changes. -->
 <network-security-config>
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="true">localhost</domain>
-        <domain includeSubdomains="true">sniffr-production.up.railway.app</domain>
     </domain-config>
-    <base-config cleartextTrafficPermitted="true">
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">sniffrweb.onrender.com</domain>
         <trust-anchors>
             <certificates src="system" />
-            <certificates src="user" />
+        </trust-anchors>
+    </domain-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
         </trust-anchors>
     </base-config>
 </network-security-config>

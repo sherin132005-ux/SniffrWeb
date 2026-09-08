@@ -6,9 +6,11 @@
   "scripts": {
     "start": "node index.js",
     "dev": "node --watch index.js",
-    "db:local": "node scripts/local-db.js"
+    "db:local": "node scripts/local-db.js",
+    "migrate:supabase-auth": "node scripts/migrate-users-to-supabase-auth.mjs"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.109.0",
     "bcryptjs": "^2.4.3",
     "cloudinary": "^2.10.0",
     "cors": "^2.8.5",
@@ -20,7 +22,8 @@
     "pg": "^8.22.0",
     "sharp": "^0.33.2",
     "socket.io": "^4.8.1",
-    "uuid": "^11.0.3"
+    "uuid": "^11.0.3",
+    "ws": "^8.21.3"
   },
   "devDependencies": {
     "embedded-postgres": "^18.4.0-beta.17"

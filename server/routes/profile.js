@@ -6,7 +6,7 @@ import PetRepo from '../models/PetRepository.js';
 import PostRepo from '../models/PostRepository.js';
 import UserRepo from '../models/UserRepository.js';
 import ProfileViewRepo from '../models/ProfileViewRepository.js';
-import storage from '../storage/index.js';
+import { uploadWithQuota } from '../services/mediaService.js';
 import config from '../config.js';
 import SpotlightRepo from '../models/SpotlightRepository.js';
 import db from '../db/connection.js';
@@ -287,8 +287,8 @@ router.post('/', upload.single('avatar'), async (req, res) => {
 
     let avatarUrl = null;
     if (req.file) {
-      const filePath = await storage.upload(req.file, 'avatars');
-      avatarUrl = storage.getUrl(filePath);
+      const uploaded = await uploadWithQuota(req.user.id, req.file, 'avatars');
+      avatarUrl = uploaded.url;
     }
 
     const pet = await PetRepo.create({
@@ -334,8 +334,8 @@ router.put('/', upload.single('avatar'), async (req, res) => {
     if (req.body.pet_kyc !== undefined) updates.pet_kyc = req.body.pet_kyc === 'true' ? 1 : 0;
 
     if (req.file) {
-      const filePath = await storage.upload(req.file, 'avatars');
-      updates.avatar_url = storage.getUrl(filePath);
+      const uploaded = await uploadWithQuota(req.user.id, req.file, 'avatars');
+      updates.avatar_url = uploaded.url;
     }
 
     const updated = await PetRepo.update(pet.id, updates);

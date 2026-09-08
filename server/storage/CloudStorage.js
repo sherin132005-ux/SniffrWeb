@@ -11,7 +11,10 @@ cloudinary.config({
 export class CloudStorage extends StorageAdapter {
   async upload(file, subdir = '') {
     return new Promise((resolve, reject) => {
-      const isVideo = file.mimetype.startsWith('video');
+      // Cloudinary has no separate "audio" resource type -- audio files
+      // (voice notes) must be uploaded as resource_type 'video' too, or
+      // Cloudinary rejects/mishandles them. See voice-note playback fix.
+      const isVideo = file.mimetype.startsWith('video') || file.mimetype.startsWith('audio');
       const stream = cloudinary.uploader.upload_stream(
         {
           folder: `sniffr/${subdir}`,

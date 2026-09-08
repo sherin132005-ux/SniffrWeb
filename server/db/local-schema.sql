@@ -76,6 +76,13 @@ CREATE TABLE IF NOT EXISTS users (
   last_active_at              TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   reset_token                 TEXT,
   reset_token_expires_at      TIMESTAMPTZ,
+  -- Links to a Supabase Auth identity (email/password login path only --
+  -- Google Sign-In keeps using the existing custom JWT, no auth_user_id).
+  -- No FK here (unlike the real Supabase project) since this local
+  -- throwaway Postgres has no `auth` schema -- the email/password ->
+  -- Supabase Auth path can't be exercised against local dev; test it
+  -- against the real Supabase project instead.
+  auth_user_id                 UUID UNIQUE,
   super_sniff_enabled         INTEGER DEFAULT 0,
   current_plan                plan_tier_enum DEFAULT 'free',
   plan_source                 plan_source_enum DEFAULT 'none',
@@ -103,6 +110,10 @@ CREATE TABLE IF NOT EXISTS users (
   -- Platform-admin flag (middleware/admin.js requireAdmin) -- real BOOLEAN,
   -- not the INTEGER 0/1 convention used elsewhere in this table.
   is_admin                    BOOLEAN NOT NULL DEFAULT FALSE,
+  -- Cloudinary storage usage tracking (services/mediaService.js) --
+  -- override is nullable; NULL means "use the plan default in config.js".
+  storage_used_bytes           BIGINT NOT NULL DEFAULT 0,
+  storage_quota_override_bytes BIGINT,
   created_at                  TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -655,6 +666,24 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
 );
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user ON refresh_tokens(user_id);
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_hash ON refresh_tokens(token_hash);
+
+
+-- ============================================================================
+-- MEDIA_FILES — per-upload record backing users.storage_used_bytes
+-- (services/mediaService.js). Postgres never holds the media bytes
+-- themselves, only this ledger + the running total on users.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS media_files (
+  id             SERIAL PRIMARY KEY,
+  user_id        INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  url            TEXT NOT NULL,
+  bytes          BIGINT NOT NULL,
+  provider       TEXT NOT NULL DEFAULT 'cloudinary',
+  resource_type  TEXT,
+  subdir         TEXT,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_media_files_user_id ON media_files(user_id);
 
 
 -- ============================================================================

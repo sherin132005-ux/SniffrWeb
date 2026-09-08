@@ -7,11 +7,24 @@ import db from '../db/connection.js';
 // on forever.
 const typingTimeouts = new Map();
 
+async function isCommunityMember(communityId, userId) {
+  const member = await db.get(
+    'SELECT 1 FROM community_members WHERE community_id = ? AND user_id = ?',
+    [communityId, userId]
+  );
+  return !!member;
+}
+
 export function setupCommunitySocket(io) {
   io.on('connection', (socket) => {
     const userId = socket.user.id;
 
-    socket.on('join_community_chat', ({ communityId }) => {
+    socket.on('join_community_chat', async ({ communityId }) => {
+      // Same class of gap as chat.js's join_conversation -- without this,
+      // any authenticated socket could join any PawCircle's room and read
+      // every message, bypassing the REST-level membership gate entirely.
+      const isMember = await isCommunityMember(communityId, userId);
+      if (!isMember) return;
       socket.join(`pawcircle_${communityId}`);
     });
 
@@ -48,6 +61,12 @@ export function setupCommunitySocket(io) {
 
     socket.on('send_community_message', async ({ communityId, content, mediaUrl, replyToId }) => {
       try {
+        // CommunityRepo.addMessage has no ownership/membership check of its
+        // own -- without this, any authenticated user could post into any
+        // PawCircle's chat without being a member.
+        const isMember = await isCommunityMember(communityId, userId);
+        if (!isMember) return;
+
         const message = await CommunityRepo.addMessage({
           community_id: communityId,
           sender_id: userId,

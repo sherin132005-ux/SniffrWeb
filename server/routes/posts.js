@@ -5,7 +5,7 @@ import { rateLimiter } from '../middleware/rateLimiter.js';
 import PostRepo from '../models/PostRepository.js';
 import PetRepo from '../models/PetRepository.js';
 import SpotlightRepo from '../models/SpotlightRepository.js';
-import storage from '../storage/index.js';
+import { uploadWithQuota } from '../services/mediaService.js';
 import config from '../config.js';
 import db from '../db/connection.js';
 import { sendRealtimeNotification } from '../socket/notifications.js';
@@ -89,8 +89,8 @@ router.post('/', rateLimiter(config.RATE_LIMIT.POST), upload.single('media'), as
     let mediaUrl = null;
     let mediaType = 'image';
     if (req.file) {
-      const filePath = await storage.upload(req.file, 'posts');
-      mediaUrl = storage.getUrl(filePath);
+      const uploaded = await uploadWithQuota(req.user.id, req.file, 'posts');
+      mediaUrl = uploaded.url;
       mediaType = req.file.mimetype.startsWith('video') ? 'video' : 'image';
     }
 

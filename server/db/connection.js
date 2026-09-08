@@ -6,9 +6,16 @@ let pool;
 export async function initDb() {
   pool = new Pool({
     connectionString: process.env.DATABASE_URL,
-    // Supabase requires SSL; this setting works for both Supabase and most cloud Postgres hosts.
-    // DATABASE_SSL=false opts out for a plain local Postgres (e.g. local dev) that has no SSL configured.
-    ssl: process.env.DATABASE_SSL === 'false' ? false : { rejectUnauthorized: false },
+    // Supabase requires SSL; DATABASE_SSL=false opts out for a plain local
+    // Postgres (e.g. local dev) that has no SSL configured. Certificate
+    // validation is only relaxed outside production -- Supabase's
+    // connection cert is signed by a real, publicly-trusted CA, so there's
+    // no reason to skip validation once actually deployed; the old
+    // unconditional rejectUnauthorized:false weakened the DB connection
+    // against MITM in every environment, including production.
+    ssl: process.env.DATABASE_SSL === 'false'
+      ? false
+      : { rejectUnauthorized: process.env.NODE_ENV === 'production' },
   });
 
   // quick connectivity check on boot, fails loudly if DATABASE_URL is wrong

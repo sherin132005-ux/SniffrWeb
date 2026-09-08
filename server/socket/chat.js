@@ -27,6 +27,14 @@ socket.emit("online_users_list", {
 });
     // Join conversation room
   socket.on('join_conversation', async ({ conversationId }) => {
+  // Without this check, any authenticated socket could join any
+  // conv_<id> room by guessing/knowing the ID and silently receive every
+  // future message in a conversation it isn't part of -- the REST layer
+  // already enforces this (MessageRepo.canAccessConversation), but the
+  // realtime layer bypassed it entirely until now.
+  const access = await MessageRepo.canAccessConversation(conversationId, userId);
+  if (!access) return;
+
   socket.join(`conv_${conversationId}`);
 
   await MessageRepo.markSeen(conversationId, userId);
