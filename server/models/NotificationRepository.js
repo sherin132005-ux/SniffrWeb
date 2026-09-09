@@ -1,5 +1,5 @@
 import BaseRepository from './BaseRepository.js';
-import db from '../db/connection.js';
+import db, { withTransaction } from '../db/connection.js';
 import PetRepo from './PetRepository.js';
 import MatchRepo from './MatchRepository.js';
 import { hasCurrentAccess } from '../services/subscriptionService.js';
@@ -149,7 +149,23 @@ class NotificationRepository extends BaseRepository {
     userId, category, type, targetId, senderPetId, actionStatus,
     avatarUrl, actorName, singleDescription,
   }) {
-    const recent = await db.get(
+    // Locked on (userId, type, targetId) -- without this, two near-
+    // simultaneous likes/comments on the same post could both read "no
+    // recent grouped notification" before either write commits, each
+    // INSERTing its own row instead of merging into one, inflating the
+    // unread count for what should read as a single grouped notification.
+    return withTransaction((tx) => this._createGroupedActivityNotificationLocked(tx, {
+      userId, category, type, targetId, senderPetId, actionStatus, avatarUrl, actorName, singleDescription,
+    }));
+  }
+
+  async _createGroupedActivityNotificationLocked(tx, {
+    userId, category, type, targetId, senderPetId, actionStatus,
+    avatarUrl, actorName, singleDescription,
+  }) {
+    await tx.run('SELECT pg_advisory_xact_lock(hashtext(?))', [`notif:${userId}:${type}:${targetId}`]);
+
+    const recent = await tx.get(
       "SELECT * FROM notifications WHERE user_id = ? AND type = ? AND target_id = ? AND created_at > NOW() - INTERVAL '12 hours'",
       [userId, type, targetId]
     );
@@ -176,28 +192,34 @@ class NotificationRepository extends BaseRepository {
       groupedDescription = singleDescription || groupedTitle;
     } else if (count === 2) {
       groupedTitle = `${names[0]} and 1 other ${verb} ${type === 'lick' ? '🐾' : '💬'}`;
-      groupedDescription = null; // title alone is fully descriptive once grouped -- avoid showing the same sentence twice
+      // '' not null -- notifications.description is NOT NULL. The client
+      // renders this in a bare <p> with no falsy-check, so '' and null are
+      // visually identical (an empty line), but null crashed the INSERT/
+      // UPDATE outright with a not-null-constraint violation -- this
+      // wasn't a race-only bug, it broke on ANY second like/comment on the
+      // same post within 12 hours, sequential or not.
+      groupedDescription = '';
     } else {
       groupedTitle = `${names[0]} and ${count - 1} others ${verb} ${type === 'lick' ? '🐾' : '💬'}`;
-      groupedDescription = null;
+      groupedDescription = '';
     }
 
     const updatedMeta = JSON.stringify({ names });
 
     if (recent) {
-      await db.run(
+      await tx.run(
         "UPDATE notifications SET title = ?, description = ?, avatar_url = ?, metadata_json = ?, is_read = 0, created_at = CURRENT_TIMESTAMP WHERE id = ?",
         [groupedTitle, groupedDescription, avatarUrl, updatedMeta, recent.id]
       );
-      const updated = await db.get('SELECT * FROM notifications WHERE id = ?', [recent.id]);
+      const updated = await tx.get('SELECT * FROM notifications WHERE id = ?', [recent.id]);
       return this._attachSenderPremium(updated);
     } else {
-      const result = await db.run(
+      const result = await tx.run(
         `INSERT INTO notifications (user_id, category, type, title, description, avatar_url, target_id, sender_pet_id, action_status, metadata_json)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
         [userId, category, type, groupedTitle, groupedDescription, avatarUrl, targetId, senderPetId, actionStatus, updatedMeta]
       );
-      const created = await db.get('SELECT * FROM notifications WHERE id = ?', [result.rows[0].id]);
+      const created = await tx.get('SELECT * FROM notifications WHERE id = ?', [result.rows[0].id]);
       return this._attachSenderPremium(created);
     }
   }

@@ -316,16 +316,37 @@ export async function submitManualPaymentProof(userId, sessionId, { paymentMetho
   if (session.status === 'pending_review') return { success: false, reason: 'ALREADY_SUBMITTED' };
   if (session.status !== 'pending') return { success: false, reason: 'SESSION_NOT_ELIGIBLE' };
 
+  // Without this, the same real-world UTR could be submitted across
+  // multiple sessions (own or another account's) and, if an admin
+  // approves more than one without manually cross-referencing every prior
+  // submission, one real payment activates Premium more than once. A
+  // partial unique index on payment_sessions also enforces this at the DB
+  // level as a race-proof backstop (see migration).
+  const reused = await db.get(
+    `SELECT id FROM payment_sessions
+     WHERE upi_transaction_id = ? AND id != ? AND status IN ('pending_review', 'approval_in_progress', 'succeeded')`,
+    [upiTransactionId, sessionId]
+  );
+  if (reused) return { success: false, reason: 'UTR_ALREADY_USED' };
+
   // Upload only after every DB-backed validation above has passed, so an
   // invalid/duplicate/foreign session never wastes a Cloudinary upload.
   const proofUrl = await storage.upload(file, 'payment_proofs');
 
-  await db.run(
-    `UPDATE payment_sessions
-     SET payment_method = ?, upi_transaction_id = ?, proof_url = ?, submitted_at = CURRENT_TIMESTAMP, status = 'pending_review'
-     WHERE id = ?`,
-    [paymentMethod, upiTransactionId, proofUrl, sessionId]
-  );
+  try {
+    await db.run(
+      `UPDATE payment_sessions
+       SET payment_method = ?, upi_transaction_id = ?, proof_url = ?, submitted_at = CURRENT_TIMESTAMP, status = 'pending_review'
+       WHERE id = ?`,
+      [paymentMethod, upiTransactionId, proofUrl, sessionId]
+    );
+  } catch (err) {
+    // 23505 = unique_violation -- the SELECT check above can't fully close
+    // the race between two concurrent submissions of the same UTR; the
+    // partial unique index on payment_sessions is the actual backstop.
+    if (err.code === '23505') return { success: false, reason: 'UTR_ALREADY_USED' };
+    throw err;
+  }
 
   const state = await getFullPremiumState(userId, io);
   emitPremiumState(io, userId, state);

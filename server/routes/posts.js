@@ -421,6 +421,14 @@ router.get('/:id', async (req, res) => {
   try {
     const post = await PostRepo.findById(parseInt(req.params.id), req.user.id);
     if (!post) return res.status(404).json({ error: 'POST_NOT_FOUND', message: 'Post not found' });
+    // getFeed/getNewPosts already hide flagged posts -- this direct-fetch
+    // route didn't, so a post auto-flagged after enough reports remained
+    // fully viewable/likeable/commentable via its own URL even though it
+    // had disappeared from the feed. The owner can still see their own
+    // flagged post (e.g. to know it was flagged).
+    if (post.is_flagged && post.owner_user_id !== req.user.id) {
+      return res.status(404).json({ error: 'POST_NOT_FOUND', message: 'Post not found' });
+    }
     res.json({ post });
   } catch (err) {
     sendServerError(res, err);

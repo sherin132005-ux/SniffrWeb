@@ -169,8 +169,15 @@ router.post('/:id/disable', async (req, res) => {
     const community = await CommunityRepo.findById(communityId);
     if (!community) return res.status(404).json({ error: 'NOT_FOUND' });
 
-    if (community.created_by !== req.user.id) {
-      return res.status(403).json({ error: 'FORBIDDEN', message: 'Only creator can disable this PawCircle.' });
+    // Checks the live 'Owner' role in community_members, not the static
+    // communities.created_by column -- Owner can be transferred to another
+    // member (see POST /:id/members/:userId/role), and created_by is never
+    // updated when that happens, which previously left the NEW Owner
+    // unable to disable the community while the original creator (possibly
+    // now just a Member) retained sole rights.
+    const member = await db.get('SELECT role FROM community_members WHERE community_id = ? AND user_id = ?', [communityId, req.user.id]);
+    if (!member || member.role !== 'Owner') {
+      return res.status(403).json({ error: 'FORBIDDEN', message: 'Only the Owner can disable this PawCircle.' });
     }
 
     await db.run('UPDATE communities SET is_private = 1 WHERE id = ?', [communityId]);
@@ -313,7 +320,7 @@ router.get('/:id/announcements', async (req, res) => {
       return res.status(roleCheck.status).json({ error: roleCheck.error, message: roleCheck.message });
     }
 
-    const announcements = await CommunityRepo.getAnnouncements(communityId);
+    const announcements = await CommunityRepo.getAnnouncements(communityId, req.query.highlightId);
     res.json({ announcements });
   } catch (err) {
     sendServerError(res, err);
@@ -528,9 +535,10 @@ router.post('/:id/polls/:pollId/vote', rateLimiter(config.RATE_LIMIT.POST), asyn
     }
 
     const { optionIndex } = req.body;
-    const updated = await CommunityRepo.votePoll(req.params.pollId, req.user.id, optionIndex);
+    const updated = await CommunityRepo.votePoll(communityId, parseInt(req.params.pollId, 10), req.user.id, optionIndex);
     res.json({ poll: updated });
   } catch (err) {
+    if (err.message === 'Poll not found') return res.status(404).json({ error: 'POLL_NOT_FOUND' });
     sendServerError(res, err);
   }
 });

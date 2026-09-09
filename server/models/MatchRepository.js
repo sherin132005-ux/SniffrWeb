@@ -1,5 +1,5 @@
 import BaseRepository from './BaseRepository.js';
-import db from '../db/connection.js';
+import db, { withTransaction } from '../db/connection.js';
 
 // Explicit sniff-request state machine (see swipes.request_status):
 //   'awaiting'  -- a live request, pending the recipient's Accept/Reject
@@ -79,32 +79,49 @@ class MatchRepository extends BaseRepository {
    * in both directions at once.
    */
   async createPendingSwipeAction(fromPetId, toPetId, kind) {
-    const reverseAwaiting = await db.get(
-      `SELECT id FROM swipes WHERE from_pet_id = ? AND to_pet_id = ?
-         AND request_status = 'awaiting' AND (expires_at IS NULL OR expires_at > NOW())`,
-      [toPetId, fromPetId]
-    );
-    if (reverseAwaiting) {
-      return { type: 'absorbed' };
-    }
+    // Everything below runs inside one transaction holding a Postgres
+    // advisory lock keyed on the unordered (fromPetId, toPetId) pair --
+    // without it, two swipes racing within milliseconds (A->B and B->A at
+    // the same instant, or the same swipe double-fired from a flaky
+    // retry/double-tap) could both pass the "no reverse-awaiting row" /
+    // "no existing row" checks before either write commits, either
+    // leaving pending rows in both directions at once (violating the
+    // invariant this function's callers rely on) or hitting the
+    // swipes(from_pet_id, to_pet_id) unique constraint and crashing with
+    // a raw 500 instead of being absorbed like every other concurrent
+    // duplicate in this codebase. The lock serializes ALL swipe actions
+    // between this specific pair of pets, in either direction, closing
+    // both races with one mechanism.
+    return withTransaction(async (tx) => {
+      await tx.run('SELECT pg_advisory_xact_lock(?, ?)', [Math.min(fromPetId, toPetId), Math.max(fromPetId, toPetId)]);
 
-    const action = kind === 'rejected' ? 'decline' : 'like';
-    const existing = await db.get('SELECT id FROM swipes WHERE from_pet_id = ? AND to_pet_id = ?', [fromPetId, toPetId]);
-    if (existing) {
-      await db.run(
-        `UPDATE swipes SET action = ?, request_status = ?, status = 'pending',
-           notification_id = NULL, expires_at = NOW() + INTERVAL '30 days', created_at = CURRENT_TIMESTAMP
-         WHERE id = ?`,
-        [action, kind, existing.id]
+      const reverseAwaiting = await tx.get(
+        `SELECT id FROM swipes WHERE from_pet_id = ? AND to_pet_id = ?
+           AND request_status = 'awaiting' AND (expires_at IS NULL OR expires_at > NOW())`,
+        [toPetId, fromPetId]
       );
-      return { type: 'pending', swipeId: existing.id };
-    }
-    const result = await db.run(
-      `INSERT INTO swipes (from_pet_id, to_pet_id, action, request_status, status, expires_at)
-       VALUES (?, ?, ?, ?, 'pending', NOW() + INTERVAL '30 days') RETURNING id`,
-      [fromPetId, toPetId, action, kind]
-    );
-    return { type: 'pending', swipeId: result.rows[0].id };
+      if (reverseAwaiting) {
+        return { type: 'absorbed' };
+      }
+
+      const action = kind === 'rejected' ? 'decline' : 'like';
+      const existing = await tx.get('SELECT id FROM swipes WHERE from_pet_id = ? AND to_pet_id = ?', [fromPetId, toPetId]);
+      if (existing) {
+        await tx.run(
+          `UPDATE swipes SET action = ?, request_status = ?, status = 'pending',
+             notification_id = NULL, expires_at = NOW() + INTERVAL '30 days', created_at = CURRENT_TIMESTAMP
+           WHERE id = ?`,
+          [action, kind, existing.id]
+        );
+        return { type: 'pending', swipeId: existing.id };
+      }
+      const result = await tx.run(
+        `INSERT INTO swipes (from_pet_id, to_pet_id, action, request_status, status, expires_at)
+         VALUES (?, ?, ?, ?, 'pending', NOW() + INTERVAL '30 days') RETURNING id`,
+        [fromPetId, toPetId, action, kind]
+      );
+      return { type: 'pending', swipeId: result.rows[0].id };
+    });
   }
 
   async attachNotificationId(swipeId, notificationId) {

@@ -196,6 +196,17 @@ export default function CommunityPage() {
     }
   }, [location.state]);
 
+  // Scrolls to the specific announcement a notification pointed at, once
+  // it's actually loaded (getAnnouncements' highlightId ensures it's in
+  // the list even if older than the default window -- see server fix).
+  useEffect(() => {
+    if (activeSubTab !== 'announcements' || !location.state?.announcementId) return;
+    const id = location.state.announcementId;
+    if (!announcements.some(a => String(a.id) === String(id))) return;
+    const el = document.getElementById(`announcement-${id}`);
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [activeSubTab, announcements, location.state]);
+
   const [loading, setLoading] = useState(true);
 
   // Sub-data inside community
@@ -435,8 +446,16 @@ export default function CommunityPage() {
       // individually swallowed here rather than left to reject the whole
       // Promise.all, which would otherwise hit the catch block below and
       // wipe community back to null even though the public fetch succeeded.
+      // highlightId ensures a notification's specific announcement is
+      // included even if it's aged out of the default window -- without
+      // it, clicking an older announcement notification landed on this
+      // tab without the announcement it was actually about ever appearing.
+      const highlightId = location.state?.announcementId;
+      const announcementsUrl = highlightId
+        ? `/communities/${cleanId}/announcements?highlightId=${highlightId}`
+        : `/communities/${cleanId}/announcements`;
       const [annRes, msgRes, photoRes, pollRes, memRes] = await Promise.all([
-        api.get(`/communities/${cleanId}/announcements`).catch(() => ({})),
+        api.get(announcementsUrl).catch(() => ({})),
         api.get(`/communities/${cleanId}/messages`).catch(() => ({})),
         api.get(`/communities/${cleanId}/photos`).catch(() => ({})),
         api.get(`/communities/${cleanId}/polls`).catch(() => ({})),
@@ -1159,7 +1178,7 @@ export default function CommunityPage() {
             ) : (
               <div className="space-y-3">
                 {announcements.map(ann => (
-                  <div key={ann.id} className="bg-yellow-50/50 border border-yellow-200/60 rounded-3xl p-4 relative shadow-sm">
+                  <div key={ann.id} id={`announcement-${ann.id}`} className={`bg-yellow-50/50 border rounded-3xl p-4 relative shadow-sm ${String(ann.id) === String(location.state?.announcementId) ? 'border-yellow-500 ring-2 ring-yellow-400' : 'border-yellow-200/60'}`}>
                     <div className="flex items-center gap-2 mb-2">
                       <img className="w-6 h-6 rounded-full object-cover" src={avatarUrl(ann.sender_avatar) || '/logo.png'} alt={ann.username} loading="lazy" decoding="async" />
                       <span className="text-[10px] font-black text-yellow-800 uppercase tracking-widest">{ann.full_name || ann.username}</span>

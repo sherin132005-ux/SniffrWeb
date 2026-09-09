@@ -313,7 +313,18 @@ export default function ProfilePage() {
       // Sync AuthContext.pet so HomePage completion bar updates
       await refreshProfile();
       loadProfile();
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error(err);
+      // Previously silent -- a rejected upload (quota exceeded, oversized
+      // file, network error) showed the user literally nothing.
+      setToast(err.message || "🐾 Couldn't update your photo. Try again.");
+      setTimeout(() => setToast(null), 3000);
+    } finally {
+      // Without this, re-selecting the SAME file after a failed attempt
+      // doesn't fire onChange again (the input's value never changed from
+      // the browser's perspective), so a naive retry silently no-ops.
+      e.target.value = '';
+    }
   };
 
   const handlePawsitiveSaved = async (newScore) => {

@@ -603,6 +603,11 @@ CREATE TABLE IF NOT EXISTS payment_sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_payment_sessions_user ON payment_sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_payment_sessions_status ON payment_sessions(status);
+-- Race-proof backstop against the same UPI transaction ID being attached
+-- to more than one active/succeeded session (see subscriptionService.js).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_sessions_utr_active
+  ON payment_sessions (upi_transaction_id)
+  WHERE status IN ('pending_review', 'approval_in_progress', 'succeeded');
 
 -- action is free TEXT by design (see subscriptionService.js comments) --
 -- values in current use: 'subscribed' | 'renewed' | 'upgraded' |

@@ -22,6 +22,18 @@ class PostRepository extends BaseRepository {
     // consumed by any caller (frontend never reads `total`). Fetching
     // limit+1 costs nothing extra over the existing query plan and slicing
     // the spare row off before returning gives the same hasMore signal.
+    //
+    // is_liked is cast to ::int (like every other COUNT(*) here) -- without
+    // it, Postgres returns a BIGINT, which the pg driver hands back as a
+    // STRING ("0"/"1") to avoid precision loss. "0" is truthy in JS, so
+    // every post rendered as already-liked and toggling it decremented the
+    // count instead of incrementing -- this was the actual bug, not a
+    // frontend issue. userId is now a bound parameter instead of being
+    // string-interpolated into the query text.
+    const isLikedClause = userId
+      ? `(SELECT COUNT(*) FROM likes WHERE post_id = p.id AND user_id = ?)::int as is_liked,`
+      : '0 as is_liked,';
+    const params = userId ? [userId, limit + 1, offset] : [limit + 1, offset];
     const rows = await db.all(`
       SELECT p.*, pet.name as pet_name, pet.pet_username, pet.avatar_url as pet_avatar,
         pet.breed_name, pet.age as pet_age, pet.location_text, pet.type as pet_type, pet.id as author_pet_id,
@@ -37,7 +49,7 @@ class PostRepository extends BaseRepository {
             GROUP BY reaction
           ) r
         ) as reactions,
-        ${userId ? `(SELECT COUNT(*) FROM likes WHERE post_id = p.id AND user_id = ${userId}) as is_liked,` : '0 as is_liked,'}
+        ${isLikedClause}
         u.username as owner_username, u.subscription_status as owner_subscription_status,
         u.premium_badge_enabled as owner_premium_badge_enabled, u.plan_expiry_date as owner_plan_expiry_date
       FROM posts p
@@ -46,7 +58,7 @@ class PostRepository extends BaseRepository {
       WHERE p.is_flagged = 0
       ORDER BY p.created_at DESC
       LIMIT ? OFFSET ?
-    `, [limit + 1, offset]);
+    `, params);
     const hasMore = rows.length > limit;
     const posts = hasMore ? rows.slice(0, limit) : rows;
     posts.forEach(attachPostPremium);
@@ -54,9 +66,14 @@ class PostRepository extends BaseRepository {
   }
 
   async findById(postId, userId = null) {
+    const isLikedClause = userId
+      ? `(SELECT COUNT(*) FROM likes WHERE post_id = p.id AND user_id = ?)::int as is_liked,`
+      : '0 as is_liked,';
+    const params = userId ? [userId, postId] : [postId];
     const post = await db.get(`
       SELECT p.*, pet.name as pet_name, pet.pet_username, pet.avatar_url as pet_avatar,
         pet.breed_name, pet.age as pet_age, pet.location_text, pet.type as pet_type, pet.id as author_pet_id,
+        pet.user_id as owner_user_id,
         (SELECT COUNT(*) FROM likes WHERE post_id = p.id)::int as like_count,
         (SELECT COUNT(*) FROM comments WHERE post_id = p.id)::int as comment_count,
         (SELECT COUNT(*) FROM shares WHERE post_id = p.id)::int as share_count,
@@ -69,18 +86,22 @@ class PostRepository extends BaseRepository {
             GROUP BY reaction
           ) r
         ) as reactions,
-        ${userId ? `(SELECT COUNT(*) FROM likes WHERE post_id = p.id AND user_id = ${userId}) as is_liked,` : '0 as is_liked,'}
+        ${isLikedClause}
         u.username as owner_username, u.subscription_status as owner_subscription_status,
         u.premium_badge_enabled as owner_premium_badge_enabled, u.plan_expiry_date as owner_plan_expiry_date
       FROM posts p
       JOIN pets pet ON p.pet_id = pet.id
       JOIN users u ON pet.user_id = u.id
       WHERE p.id = ?
-    `, [postId]);
+    `, params);
     return post ? attachPostPremium(post) : post;
   }
 
   async getNewPosts(afterTimestamp, userId = null) {
+    const isLikedClause = userId
+      ? `(SELECT COUNT(*) FROM likes WHERE post_id = p.id AND user_id = ?)::int as is_liked,`
+      : '0 as is_liked,';
+    const params = userId ? [userId, afterTimestamp] : [afterTimestamp];
     const posts = await db.all(`
       SELECT p.*, pet.name as pet_name, pet.pet_username, pet.avatar_url as pet_avatar,
         pet.breed_name, pet.age as pet_age, pet.location_text, pet.type as pet_type, pet.id as author_pet_id,
@@ -96,7 +117,7 @@ class PostRepository extends BaseRepository {
             GROUP BY reaction
           ) r
         ) as reactions,
-        ${userId ? `(SELECT COUNT(*) FROM likes WHERE post_id = p.id AND user_id = ${userId}) as is_liked,` : '0 as is_liked,'}
+        ${isLikedClause}
         u.username as owner_username, u.subscription_status as owner_subscription_status,
         u.premium_badge_enabled as owner_premium_badge_enabled, u.plan_expiry_date as owner_plan_expiry_date
       FROM posts p
@@ -104,7 +125,7 @@ class PostRepository extends BaseRepository {
       JOIN users u ON pet.user_id = u.id
       WHERE p.is_flagged = 0 AND p.created_at > ?
       ORDER BY p.created_at DESC
-    `, [afterTimestamp]);
+    `, params);
     posts.forEach(attachPostPremium);
     return { posts };
   }
@@ -271,11 +292,12 @@ class PostRepository extends BaseRepository {
     const pet = await db.get('SELECT * FROM pets WHERE id = ? AND user_id = ?', [post.pet_id, userId]);
     if (!pet) return { forbidden: true };
 
-    await db.run('DELETE FROM likes WHERE post_id = ?', [postId]);
-    await db.run('DELETE FROM comments WHERE post_id = ?', [postId]);
-    await db.run('DELETE FROM reactions WHERE post_id = ?', [postId]);
-    await db.run('DELETE FROM shares WHERE post_id = ?', [postId]);
-    await db.run('DELETE FROM post_reports WHERE post_id = ?', [postId]);
+    // likes/comments/reactions/shares/post_reports all have
+    // ON DELETE CASCADE on post_id -- deleting the post row alone removes
+    // all of them atomically in one statement. The previous 5 separate
+    // DELETEs were both redundant and non-atomic among themselves: a
+    // dropped connection/timeout partway through could leave engagement
+    // data partially wiped while the post row itself still existed.
     await db.run('DELETE FROM posts WHERE id = ?', [postId]);
 
     return { success: true, pet_id: post.pet_id };

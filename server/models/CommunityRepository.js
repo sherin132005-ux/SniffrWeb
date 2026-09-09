@@ -54,7 +54,11 @@ class CommunityRepository extends BaseRepository {
   }
 
   async search({ q = '', category, breed, pet_type, city, tags }) {
-    let sql = 'SELECT * FROM communities WHERE 1=1';
+    // is_private = 0 -- without this, a private ("Invite Only") PawCircle's
+    // name, description, city, and member count were returned to any
+    // authenticated user via search, defeating the point of making it
+    // private in the first place.
+    let sql = 'SELECT * FROM communities WHERE is_private = 0';
     const params = [];
 
     if (q) {
@@ -133,8 +137,14 @@ class CommunityRepository extends BaseRepository {
     );
     const activeMembersCount = activeRow?.count ? Number(activeRow.count) : Math.max(1, Math.floor(community.member_count * 0.4));
 
+    // invite_code is stripped for non-members -- it was previously returned
+    // to any authenticated user who knew/guessed the community's ID, member
+    // or not.
+    const { invite_code, ...safeCommunity } = community;
+
     return {
-      ...community,
+      ...safeCommunity,
+      ...(membership ? { invite_code } : {}),
       joinStatus,
       userRole: membership?.role || null,
       userBadge: membership?.verified_badge || null,
@@ -195,17 +205,34 @@ class CommunityRepository extends BaseRepository {
     return { members, total, page, hasMore: offset + limit < total };
   }
 
-  async getAnnouncements(communityId) {
-    return db.all(
+  // highlightId: a notification's target_id can point at an announcement
+  // older than the default window -- without ensuring it's included, a
+  // notification's deep-link landed on a tab that silently didn't contain
+  // the announcement it was about. LIMIT was also raised from 3 to 20,
+  // since 3 made this trivial to hit even without an old notification.
+  async getAnnouncements(communityId, highlightId = null) {
+    const rows = await db.all(
       `SELECT ca.*, u.username, u.full_name, p.avatar_url as sender_avatar
        FROM community_announcements ca
        JOIN users u ON ca.sender_id = u.id
        LEFT JOIN pets p ON u.id = p.user_id
        WHERE ca.community_id = ?
        ORDER BY ca.created_at DESC
-       LIMIT 3`,
+       LIMIT 20`,
       [communityId]
     );
+    if (highlightId && !rows.some(r => r.id === Number(highlightId))) {
+      const extra = await db.get(
+        `SELECT ca.*, u.username, u.full_name, p.avatar_url as sender_avatar
+         FROM community_announcements ca
+         JOIN users u ON ca.sender_id = u.id
+         LEFT JOIN pets p ON u.id = p.user_id
+         WHERE ca.id = ? AND ca.community_id = ?`,
+        [highlightId, communityId]
+      );
+      if (extra) rows.push(extra);
+    }
+    return rows;
   }
 
   async getMessages(communityId, userId = null, limit = 50) {
@@ -446,9 +473,14 @@ class CommunityRepository extends BaseRepository {
     return polls.find(p => p.id === result.rows[0].id);
   }
 
-  async votePoll(pollId, userId, optionIndex) {
+  async votePoll(communityId, pollId, userId, optionIndex) {
     const poll = await db.get('SELECT * FROM community_polls WHERE id = ?', [pollId]);
     if (!poll) throw new Error('Poll not found');
+    // The route only verifies the caller is a member of :id (communityId)
+    // -- without this check, that membership check said nothing about
+    // whether the poll being voted on actually belongs to THAT community,
+    // letting any member of any PawCircle vote on any poll by guessing IDs.
+    if (poll.community_id !== communityId) throw new Error('Poll not found');
     const votes = JSON.parse(poll.votes_json || '{}');
 
     Object.keys(votes).forEach(idx => {

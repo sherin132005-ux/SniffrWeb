@@ -9,7 +9,7 @@ import ProfileViewRepo from '../models/ProfileViewRepository.js';
 import { uploadWithQuota } from '../services/mediaService.js';
 import config from '../config.js';
 import SpotlightRepo from '../models/SpotlightRepository.js';
-import db from '../db/connection.js';
+import db, { withTransaction } from '../db/connection.js';
 import { sendRealtimeNotification } from '../socket/notifications.js';
 import { canAddPet, canUseSuperSniff } from '../services/premiumGate.js';
 import { sendServerError } from '../utils/errors.js';
@@ -291,7 +291,7 @@ router.post('/', upload.single('avatar'), async (req, res) => {
       avatarUrl = uploaded.url;
     }
 
-    const pet = await PetRepo.create({
+    const petData = {
       user_id: req.user.id,
       name: req.body.name,
       pet_username: req.body.pet_username ? `@${req.body.pet_username.replace('@', '')}` : null,
@@ -312,9 +312,44 @@ router.post('/', upload.single('avatar'), async (req, res) => {
       area: req.body.area || '',
       bio: req.body.bio || '',
       pawsitive_score: null,
+    };
+
+    // canAddPet() above is a fast-path friendly error (avoids the upload
+    // above for an obviously-over-limit request) but is a plain
+    // check-then-act read with no lock -- two concurrent "add pet"
+    // requests could both pass it before either insert lands, letting a
+    // free-tier user end up with more pets than their plan allows. This
+    // re-checks the count atomically, inside a per-user advisory lock, as
+    // the actual enforcement.
+    const pet = await withTransaction(async (tx) => {
+      await tx.run('SELECT pg_advisory_xact_lock(?)', [req.user.id]);
+      const row = await tx.get('SELECT COUNT(*) as count FROM pets WHERE user_id = ?', [req.user.id]);
+      if (Number(row.count) >= petCheck.limit) {
+        const err = new Error('PET_LIMIT_REACHED');
+        err.code = 'PET_LIMIT_REACHED';
+        err.limit = petCheck.limit;
+        err.plan = petCheck.plan;
+        throw err;
+      }
+      const keys = Object.keys(petData);
+      const placeholders = keys.map(() => '?').join(', ');
+      const result = await tx.run(
+        `INSERT INTO pets (${keys.join(', ')}) VALUES (${placeholders}) RETURNING *`,
+        Object.values(petData)
+      );
+      return result.rows[0];
     });
+
     res.status(201).json(pet);
   } catch (err) {
+    if (err.code === 'PET_LIMIT_REACHED') {
+      return res.status(403).json({
+        error: 'PET_LIMIT_REACHED',
+        message: `Free accounts can have up to ${err.limit} pet profile${err.limit === 1 ? '' : 's'}. Upgrade to Premium for unlimited pets.`,
+        plan: err.plan,
+        limit: err.limit,
+      });
+    }
     sendServerError(res, err);
   }
 });
@@ -400,6 +435,15 @@ router.get('/:id', async (req, res) => {
 
     const stats = await PetRepo.getProfileWithStats(petId);
     if (!stats) return res.status(404).json({ error: 'NOT_FOUND' });
+
+    // Chat, matches, and calls all already enforce blocks (returning 403
+    // BLOCKED, the existing convention) -- this route didn't, letting a
+    // blocked user view a profile directly via URL/ID even though blocking
+    // is meant to stop all contact between the pair.
+    if (stats.user_id !== req.user.id && await UserRepo.isBlocked(req.user.id, stats.user_id)) {
+      return res.status(403).json({ error: 'BLOCKED', message: 'You cannot view this profile.' });
+    }
+
     const champ = await SpotlightRepo.isChampion(stats.id, stats.latitude, stats.longitude, req.query.cycleStart);
     if (champ) {
       stats.is_champion = true;
@@ -426,6 +470,13 @@ router.post('/:id/view', async (req, res) => {
     if (!viewedPet) return res.status(404).json({ error: 'NOT_FOUND' });
 
     if (viewedPet.user_id === req.user.id) {
+      return res.json({ success: true, notified: false });
+    }
+
+    // A blocked party viewing/being viewed shouldn't trigger a "someone
+    // viewed your profile" notification either -- same block enforcement
+    // as GET /:id above.
+    if (await UserRepo.isBlocked(req.user.id, viewedPet.user_id)) {
       return res.json({ success: true, notified: false });
     }
 
