@@ -196,17 +196,6 @@ export default function CommunityPage() {
     }
   }, [location.state]);
 
-  // Scrolls to the specific announcement a notification pointed at, once
-  // it's actually loaded (getAnnouncements' highlightId ensures it's in
-  // the list even if older than the default window -- see server fix).
-  useEffect(() => {
-    if (activeSubTab !== 'announcements' || !location.state?.announcementId) return;
-    const id = location.state.announcementId;
-    if (!announcements.some(a => String(a.id) === String(id))) return;
-    const el = document.getElementById(`announcement-${id}`);
-    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }, [activeSubTab, announcements, location.state]);
-
   const [loading, setLoading] = useState(true);
 
   // Sub-data inside community
@@ -216,6 +205,21 @@ export default function CommunityPage() {
   const [files, setFiles] = useState([]);
   const [polls, setPolls] = useState([]);
   const [members, setMembers] = useState([]);
+
+  // Scrolls to the specific announcement a notification pointed at, once
+  // it's actually loaded (getAnnouncements' highlightId ensures it's in
+  // the list even if older than the default window -- see server fix).
+  // Must stay below the `announcements`/`activeSubTab` state declarations
+  // above -- referencing them in this effect's dependency array before
+  // their own `useState` line runs throws "Cannot access before
+  // initialization" on every render, crashing this whole page.
+  useEffect(() => {
+    if (activeSubTab !== 'announcements' || !location.state?.announcementId) return;
+    const idToFind = location.state.announcementId;
+    if (!announcements.some(a => String(a.id) === String(idToFind))) return;
+    const el = document.getElementById(`announcement-${idToFind}`);
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [activeSubTab, announcements, location.state]);
 
   const handleCopyInviteLink = (e) => {
     if (e) {
