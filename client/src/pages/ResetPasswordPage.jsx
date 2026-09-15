@@ -152,7 +152,7 @@ export default function ResetPasswordPage() {
         </div>
 
         <footer className="mt-auto py-8 text-center space-y-4">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant/40">© 2026 SNIFFR.CO.IN</p>
+          <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant/40">© 2026 SNIFFRWEB.COM</p>
           <div className="flex justify-center gap-4 text-zinc-300/80">
             <span className="material-symbols-outlined text-[18px]">star</span>
             <span className="material-symbols-outlined text-[18px]">verified</span>

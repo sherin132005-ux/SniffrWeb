@@ -6,7 +6,7 @@ import UserRepo from '../models/UserRepository.js';
 import PetRepo from '../models/PetRepository.js';
 import {
   generateAccessToken, generateRefreshToken,
-  verifyRefreshToken, revokeRefreshToken,
+  verifyRefreshToken, revokeRefreshToken, revokeAllUserTokens,
   authenticateAccess,
 } from '../middleware/auth.js';
 import { rateLimiter } from '../middleware/rateLimiter.js';
@@ -196,7 +196,7 @@ router.post('/google', async (req, res) => {
       }
 
       const verifyRes = await fetch(
-        `https://oauth2.googleapis.com/tokeninfo?id_token=${credential}`,
+        `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`,
         { signal: AbortSignal.timeout(8000) }
       );
       const payload = await verifyRes.json();
@@ -476,7 +476,7 @@ router.post('/login', async (req, res) => {
         const tempToken = jwt.sign(
           { id: user.id, is2FATemp: true, sat: supabaseSession?.access_token, srt: supabaseSession?.refresh_token },
           config.JWT_ACCESS_SECRET,
-          { expiresIn: '10m' }
+          { expiresIn: '10m', algorithm: 'HS256' }
         );
         return res.json({
           requires2FA: true,
@@ -638,7 +638,7 @@ router.post('/2fa/verify-login', async (req, res) => {
 
     let decoded;
     try {
-      decoded = jwt.verify(tempToken, config.JWT_ACCESS_SECRET);
+      decoded = jwt.verify(tempToken, config.JWT_ACCESS_SECRET, { algorithms: ['HS256'] });
     } catch (err) {
       return res.status(400).json({ error: 'INVALID_TOKEN', message: 'Verification session expired. Please sign in again.' });
     }
@@ -693,7 +693,7 @@ router.post('/2fa/resend-code', async (req, res) => {
 
     if (tempToken) {
       try {
-        const decoded = jwt.verify(tempToken, config.JWT_ACCESS_SECRET);
+        const decoded = jwt.verify(tempToken, config.JWT_ACCESS_SECRET, { algorithms: ['HS256'] });
         userId = decoded.id;
       } catch {
         return res.status(400).json({ error: 'INVALID_TOKEN', message: 'Verification session expired. Please sign in again.' });
@@ -702,7 +702,7 @@ router.post('/2fa/resend-code', async (req, res) => {
       const authHeader = req.headers.authorization;
       if (authHeader && authHeader.startsWith('Bearer ')) {
         try {
-          const decoded = jwt.verify(authHeader.split(' ')[1], config.JWT_ACCESS_SECRET);
+          const decoded = jwt.verify(authHeader.split(' ')[1], config.JWT_ACCESS_SECRET, { algorithms: ['HS256'] });
           userId = decoded.id;
         } catch {}
       }
@@ -750,8 +750,15 @@ router.post('/forgot-password', async (req, res) => {
       user = await UserRepo.findByEmail(identifier.trim());
     }
 
+    // Always return the same generic success response whether or not the
+    // identifier matched a real account -- a 404 here would let anyone
+    // enumerate which emails/usernames have a Sniffr account by watching
+    // the response code, which the reset flow itself has no other reason
+    // to reveal.
+    const genericResponse = { message: "🐾 If that account exists, a password reset link has been sent to its linked email. Check your inbox and follow the instructions." };
+
     if (!user) {
-      return res.status(404).json({ error: 'NOT_FOUND', message: "🐾 We couldn't find that pet parent. Double-check and try again." });
+      return res.json(genericResponse);
     }
 
     const token = crypto.randomBytes(32).toString('hex');
@@ -762,7 +769,7 @@ router.post('/forgot-password', async (req, res) => {
     if (!process.env.SMTP_USER) console.log(`[DEV ONLY] Password reset link for ${user.email}: ${resetLink}`);
     await sendPasswordResetEmail(user.email, resetLink);
 
-    return res.json({ message: "🐾 A password reset link has been sent to your linked email. Check your inbox and follow the instructions." });
+    return res.json(genericResponse);
   } catch (err) {
     res.status(500).json({ error: 'SERVER_ERROR', message: 'Forgot password operation encountered a problem.' });
   }
@@ -822,6 +829,14 @@ router.post('/reset-password', async (req, res) => {
     } else {
       const password_hash = await bcrypt.hash(password, 12);
       await UserRepo.updatePassword(user.id, password_hash);
+      // Legacy (non-Supabase) accounts: a password reset is often done
+      // *because* the account is suspected compromised, so revoke every
+      // outstanding refresh token now -- otherwise a token an attacker
+      // already stole stays valid straight through the reset. No "keep
+      // this device logged in" carve-out is possible here (unlike
+      // change-password below) since this flow has no live session to
+      // exempt in the first place.
+      await revokeAllUserTokens(user.id);
     }
     await UserRepo.clearResetToken(user.id);
 
@@ -887,6 +902,15 @@ router.post('/change-password', authenticateAccess, async (req, res) => {
     } else {
       const password_hash = await bcrypt.hash(newPassword, 12);
       await UserRepo.updatePassword(user.id, password_hash);
+      // Legacy accounts' refresh tokens are our own (not Supabase's), and
+      // this request only carries the short-lived access token -- there's
+      // no clean way to identify "just this device" to exempt the way the
+      // Supabase branch above does with 'others' scope, so every refresh
+      // token is revoked, this device included. The access token that just
+      // authenticated this request still works until its own ~15min expiry;
+      // after that, even this device needs to log in again -- an acceptable
+      // trade-off against leaving a stolen refresh token valid indefinitely.
+      await revokeAllUserTokens(user.id);
     }
 
     return res.json({ success: true, message: 'Password updated successfully!' });

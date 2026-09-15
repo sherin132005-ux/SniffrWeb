@@ -278,7 +278,7 @@ const [myPetId, setMyPetId] = useState(null);
           >
             <span className="material-symbols-outlined text-lg">history</span>
           </button>
-          <h1 className="font-extrabold tracking-widest text-xl uppercase text-pink-500 dark:text-pink-300">Spotlight</h1>
+          <span className="font-extrabold tracking-widest text-xl uppercase text-pink-500 dark:text-pink-300">Spotlight</span>
           <div className="w-7 h-7" /> {/* spacer */}
         </div>
       </header>
@@ -570,9 +570,9 @@ const [myPetId, setMyPetId] = useState(null);
 
             {/* Fading details titles */}
             <div className="text-white space-y-2 text-center">
-              <h1 className="text-3xl font-black tracking-tighter text-yellow-300">👑 Today's Spotlight Champion</h1>
+              <h2 className="text-3xl font-black tracking-tighter text-yellow-300">👑 Today's Spotlight Champion</h2>
               <p className="text-sm font-medium text-zinc-300 opacity-90">Most loved pet in the current Spotlight</p>
-              <h2 className="text-2xl font-black text-white mt-4">{hallOfFamePet.name}</h2>
+              <h3 className="text-2xl font-black text-white mt-4">{hallOfFamePet.name}</h3>
             </div>
           </div>
         </div>

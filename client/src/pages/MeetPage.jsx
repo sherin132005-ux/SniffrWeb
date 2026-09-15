@@ -805,7 +805,7 @@ export default function MeetPage() {
             <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center">
               <span className="material-symbols-outlined text-primary" style={{ fontVariationSettings: "'FILL' 1" }}>pets</span>
             </div>
-            <h1 className="font-extrabold tracking-tighter text-2xl uppercase text-pink-400">Sniffr</h1>
+            <span className="font-extrabold tracking-tighter text-2xl uppercase text-pink-400">Sniffr</span>
           </div>
 
           {/* Super Sniff -- compact, always-visible toggle (see PATCH /api/profile/super-sniff).
@@ -817,7 +817,7 @@ export default function MeetPage() {
                 ? 'bg-primary text-white shadow-md'
                 : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 hover:text-primary'
             } ${superSniffLocked ? 'opacity-60' : ''}`}
-            title={user?.super_sniff_enabled ? 'Super Sniff is ON — browse without notifying' : superSniffLocked ? 'Super Sniff is a Premium feature' : 'Super Sniff is OFF'}
+            title={user?.super_sniff_enabled ? 'Super Sniff is ON - browse without notifying' : superSniffLocked ? 'Super Sniff is a Premium feature' : 'Super Sniff is OFF'}
             aria-label="Toggle Super Sniff"
           >
             <span className="text-lg leading-none">🐽</span>
@@ -847,7 +847,7 @@ export default function MeetPage() {
                 ? 'bg-primary text-white'
                 : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 hover:text-primary'
             } ${superSniffLocked ? 'opacity-60' : ''}`}
-            title={user?.super_sniff_enabled ? 'Super Sniff is ON — browse without notifying' : superSniffLocked ? 'Super Sniff is a Premium feature' : 'Super Sniff is OFF'}
+            title={user?.super_sniff_enabled ? 'Super Sniff is ON - browse without notifying' : superSniffLocked ? 'Super Sniff is a Premium feature' : 'Super Sniff is OFF'}
             aria-label="Toggle Super Sniff"
           >
             <span className="text-xl leading-none">🐽</span>

@@ -1,11 +1,14 @@
 import express from 'express';
 import { authenticateAccess } from '../middleware/auth.js';
 import { requireAdmin } from '../middleware/admin.js';
+import { rateLimiter } from '../middleware/rateLimiter.js';
+import config from '../config.js';
 import db from '../db/connection.js';
 import { approveManualPayment, rejectManualPayment } from '../services/subscriptionService.js';
 import { sendServerError } from '../utils/errors.js';
 
 const router = express.Router();
+router.use(rateLimiter(config.RATE_LIMIT.POST));
 
 router.get(
   '/payments/pending',

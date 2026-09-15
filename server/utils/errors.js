@@ -14,6 +14,9 @@ export function sendServerError(res, err, status = 500) {
       quotaBytes: err.quotaBytes,
     });
   }
+  if (err.name === 'InvalidFileError') {
+    return res.status(400).json({ error: 'INVALID_FILE', message: 'This file does not look like a valid file of its declared type.' });
+  }
   console.error('[SERVER_ERROR]', err);
   const message = config.NODE_ENV === 'development'
     ? err.message

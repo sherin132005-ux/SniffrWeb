@@ -136,7 +136,7 @@ function CallItem({ call }) {
               <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">{typeLabel}</p>
             </div>
             <div className="bg-surface-container-low rounded-2xl p-4 text-center">
-              <p className="text-xl font-extrabold text-on-surface">{duration || '—'}</p>
+              <p className="text-xl font-extrabold text-on-surface">{duration || '-'}</p>
               <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Duration</p>
             </div>
             <div className="bg-surface-container-low rounded-2xl p-4 text-center col-span-2">
@@ -144,7 +144,7 @@ function CallItem({ call }) {
                 {formatCallTime(call.created_at)}
               </p>
               <p className={`text-xs font-extrabold mt-0.5 ${statusConf.color}`}>
-                {call.direction === 'outgoing' ? '📤 Outgoing' : '📥 Incoming'} — {statusConf.label}
+                {call.direction === 'outgoing' ? '📤 Outgoing' : '📥 Incoming'} - {statusConf.label}
               </p>
               {call.start_time && (
                 <p className="text-[9px] text-zinc-400 font-medium mt-1">

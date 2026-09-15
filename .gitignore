@@ -5,6 +5,10 @@ node_modules/
 .env
 .env.*
 !.env.example
+# Not a secret -- just the production API base URL the local `cap:build`/
+# `cap:sync` scripts need baked into the Android bundle at build time, or
+# every release ships pointed at localhost:3001. Tracked deliberately.
+!client/.env.capacitor
 **/.env
 
 # Logs

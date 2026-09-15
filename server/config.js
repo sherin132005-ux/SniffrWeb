@@ -55,11 +55,26 @@ export default {
   REFRESH_TOKEN_EXPIRY_MS: 7 * 24 * 60 * 60 * 1000,
   STORAGE_TYPE: process.env.STORAGE_TYPE || 'local',
   UPLOAD_DIR:  process.env.UPLOAD_DIR  || './uploads',
-  MAX_FILE_SIZE: 10 * 1024 * 1024,
+  MAX_FILE_SIZE: 15 * 1024 * 1024,
   ALLOWED_IMAGE_TYPES: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
   ALLOWED_VIDEO_TYPES: ['video/mp4', 'video/webm', 'video/quicktime'],
   // Voice notes (ChatPage.jsx records via MediaRecorder as 'audio/webm').
   ALLOWED_AUDIO_TYPES: ['audio/webm', 'audio/mp4', 'audio/mpeg', 'audio/ogg', 'audio/wav'],
+  // Chat document attachments (ChatPage.jsx's file-attach picker). Kept
+  // separate from MAX_FILE_SIZE -- a chat document doesn't need the same
+  // 10MB headroom a photo/video upload does, so it gets its own, smaller
+  // cap enforced in routes/chat.js after multer parses the file.
+  ALLOWED_DOCUMENT_TYPES: [
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.ms-powerpoint',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'text/plain',
+  ],
+  MAX_DOCUMENT_SIZE: 5 * 1024 * 1024,
   RATE_LIMIT: {
     AUTH: { windowMs: 60000, max: 20 },
     POST: { windowMs: 60000, max: 10 },

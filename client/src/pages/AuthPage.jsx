@@ -546,7 +546,7 @@ export default function AuthPage() {
               <button onClick={()=>navigate('/privacy')} className="underline font-bold text-[#8E4D5D] hover:opacity-85">Privacy Policy</button>.
             </p>
           ) : (
-            <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant/40">© 2026 SNIFFR.CO.IN</p>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant/40">© 2026 SNIFFRWEB.COM</p>
           )}
           <div className="flex justify-center gap-4 text-zinc-300/80">
             <span className="material-symbols-outlined text-[18px]">star</span>

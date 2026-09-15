@@ -5,7 +5,7 @@ import db from '../db/connection.js';
 import { getAnonClient } from '../lib/supabase.js';
 
 export function generateAccessToken(user) {
-  return jwt.sign({ id: user.id, email: user.email }, config.JWT_ACCESS_SECRET, { expiresIn: config.ACCESS_TOKEN_EXPIRY });
+  return jwt.sign({ id: user.id, email: user.email }, config.JWT_ACCESS_SECRET, { expiresIn: config.ACCESS_TOKEN_EXPIRY, algorithm: 'HS256' });
 }
 
 export async function generateRefreshToken(user, deviceInfo = 'unknown') {
@@ -18,7 +18,11 @@ export async function generateRefreshToken(user, deviceInfo = 'unknown') {
 }
 
 export function verifyAccessToken(token) {
-  return jwt.verify(token, config.JWT_ACCESS_SECRET);
+  // Pin the algorithm explicitly -- without this, jwt.verify() accepts
+  // whatever algorithm the token itself claims (as long as it isn't
+  // "none"), which is the classic algorithm-confusion JWT attack class.
+  // Only HS256 tokens signed with our own secret should ever be valid.
+  return jwt.verify(token, config.JWT_ACCESS_SECRET, { algorithms: ['HS256'] });
 }
 
 export async function verifyRefreshToken(token) {
@@ -63,7 +67,7 @@ class AuthResolutionError extends Error {
 
 async function resolveUserFromToken(token) {
   try {
-    const decoded = jwt.verify(token, config.JWT_ACCESS_SECRET);
+    const decoded = jwt.verify(token, config.JWT_ACCESS_SECRET, { algorithms: ['HS256'] });
     return { id: decoded.id, email: decoded.email };
   } catch (customJwtErr) {
     if (customJwtErr.name === 'TokenExpiredError') {

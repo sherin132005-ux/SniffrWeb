@@ -47,4 +47,13 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <!-- The app calls the standard web navigator.geolocation API (see
+         client/src/services/locationService.js), not a Capacitor plugin --
+         but the WebView still checks the host app's own manifest
+         permissions before it'll even show the location prompt. Without
+         these, every getCurrentPosition/watchPosition call silently fails
+         on a real device (Meet/nearby discovery is unusable), even though
+         it works fine in a regular desktop browser. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 </manifest>

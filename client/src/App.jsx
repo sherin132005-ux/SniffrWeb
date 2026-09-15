@@ -7,6 +7,8 @@ import BottomNav, { SidebarNav } from './components/BottomNav';
 import EmailVerifyBanner from './components/EmailVerifyBanner';
 import WelcomeSlider from './components/WelcomeSlider';
 import LoadingPage from './pages/LoadingPage';
+import NotFoundPage from './pages/NotFoundPage';
+import usePageMeta from './hooks/usePageMeta';
 import { lazy, Suspense } from 'react';
 
 const AuthPage          = lazy(() => import('./pages/AuthPage'));
@@ -19,6 +21,7 @@ const ProfilePage       = lazy(() => import('./pages/ProfilePage'));
 const SpotlightPage     = lazy(() => import('./pages/SpotlightPage'));
 const PrivacyPage       = lazy(() => import('./pages/PrivacyPage'));
 const TermsPage         = lazy(() => import('./pages/TermsPage'));
+const FAQPage           = lazy(() => import('./pages/FAQPage'));
 const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'));
 const VerifyEmailPage   = lazy(() => import('./pages/VerifyEmailPage'));
 const CommunityPage     = lazy(() => import('./pages/CommunityPage'));
@@ -37,6 +40,39 @@ function ProtectedRoute({ children }) {
   if (!isAuthenticated && !hasToken) return <Navigate to="/" replace />;
 
   return children;
+}
+
+// Route -> per-page <title>/description/indexability. The app previously
+// shipped one static title for every route (see AUDIT_REPORT.md-style SEO
+// review); authenticated pages are noindex since a crawler without a
+// session can never actually see their content.
+const PAGE_META = [
+  { match: (p) => p === '/', meta: { title: null, description: null } },
+  { match: (p) => p === '/privacy', meta: { title: 'Privacy Policy', description: "Sniffr's privacy policy - how we handle your and your pet's data." } },
+  { match: (p) => p === '/terms', meta: { title: 'Terms & Conditions', description: "Sniffr's terms and conditions of use." } },
+  { match: (p) => p === '/faq', meta: { title: 'FAQ', description: 'Frequently asked questions about matching, messaging, safety, and Premium on Sniffr.' } },
+  { match: (p) => p === '/reset-password', meta: { title: 'Reset Password', description: 'Reset your Sniffr account password.', noindex: true } },
+  { match: (p) => p === '/verify-email', meta: { title: 'Verify Email', description: 'Verify your Sniffr account email.', noindex: true } },
+  { match: (p) => p === '/pet-selection', meta: { title: 'Select Your Pet', noindex: true } },
+  { match: (p) => p === '/create-profile', meta: { title: 'Create Profile', noindex: true } },
+  { match: (p) => p === '/home', meta: { title: 'Home Feed', description: 'See what pets in your community are up to on Sniffr.', noindex: true } },
+  { match: (p) => p === '/meet', meta: { title: 'Find a Playmate', description: 'Discover and match with pets near you on Sniffr.', noindex: true } },
+  { match: (p) => p === '/chat', meta: { title: 'Messages', description: "Chat with your pet's matches on Sniffr.", noindex: true } },
+  { match: (p) => p.startsWith('/profile'), meta: { title: 'Profile', noindex: true } },
+  { match: (p) => p === '/spotlight', meta: { title: 'Spotlight', description: "See today's Spotlight pets on Sniffr.", noindex: true } },
+  { match: (p) => p.startsWith('/community'), meta: { title: 'Community', noindex: true } },
+  { match: (p) => p.startsWith('/admin'), meta: { title: 'Admin', noindex: true } },
+];
+
+function getPageMeta(pathname) {
+  const found = PAGE_META.find(({ match }) => match(pathname));
+  return found ? found.meta : { title: 'Page Not Found', noindex: true };
+}
+
+function PageMeta() {
+  const location = useLocation();
+  usePageMeta(getPageMeta(location.pathname));
+  return null;
 }
 
 function CursorGlow() {
@@ -135,6 +171,7 @@ export default function App() {
 
   return (
     <CallProvider>
+      <PageMeta />
       <CursorGlow />
       <BackgroundBlobs />
 
@@ -149,6 +186,7 @@ export default function App() {
 
           <Route path="/privacy" element={<PrivacyPage />} />
           <Route path="/terms" element={<TermsPage />} />
+          <Route path="/faq" element={<FAQPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/verify-email" element={<VerifyEmailPage />} />
 
@@ -275,7 +313,7 @@ export default function App() {
             }
           />
 
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="*" element={<NotFoundPage />} />
 
         </Routes>
       </Suspense>

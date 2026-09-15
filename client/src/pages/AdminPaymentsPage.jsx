@@ -10,7 +10,7 @@ import api from '../services/api';
 // real endpoints below.
 
 function formatSubmittedAt(iso) {
-  if (!iso) return '—';
+  if (!iso) return '-';
   return new Date(iso).toLocaleString([], { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
@@ -66,11 +66,11 @@ function PendingPaymentRow({ payment, onResolved }) {
       <div className="grid grid-cols-2 gap-3 text-[11px]">
         <div>
           <p className="text-zinc-400 font-bold uppercase tracking-wide text-[9px]">Payment Method</p>
-          <p className="text-on-surface font-bold">{payment.payment_method || '—'}</p>
+          <p className="text-on-surface font-bold">{payment.payment_method || '-'}</p>
         </div>
         <div>
           <p className="text-zinc-400 font-bold uppercase tracking-wide text-[9px]">UTR</p>
-          <p className="text-on-surface font-bold break-all">{payment.upi_transaction_id || '—'}</p>
+          <p className="text-on-surface font-bold break-all">{payment.upi_transaction_id || '-'}</p>
         </div>
         <div className="col-span-2">
           <p className="text-zinc-400 font-bold uppercase tracking-wide text-[9px]">Submitted</p>

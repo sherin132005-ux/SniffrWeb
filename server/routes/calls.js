@@ -1,9 +1,11 @@
 import { Router } from 'express';
 import { authenticateAccess } from '../middleware/auth.js';
+import { rateLimiter } from '../middleware/rateLimiter.js';
 import config from '../config.js';
 
 const router = Router();
 router.use(authenticateAccess);
+router.use(rateLimiter(config.RATE_LIMIT.GET));
 
 // GET /api/calls/ice-servers -- called by the client right before it
 // builds an RTCPeerConnection for a call. TURN credentials must never live

@@ -1,0 +1,15 @@
+User-agent: *
+Allow: /
+Disallow: /home
+Disallow: /meet
+Disallow: /chat
+Disallow: /profile
+Disallow: /spotlight
+Disallow: /community
+Disallow: /admin
+Disallow: /pet-selection
+Disallow: /create-profile
+Disallow: /reset-password
+Disallow: /verify-email
+
+Sitemap: https://app.sniffrweb.com/sitemap.xml

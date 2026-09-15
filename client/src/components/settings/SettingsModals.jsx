@@ -91,7 +91,7 @@ const BILLING_ACTION_LABELS = {
   payment_rejected: 'Payment Rejected',
 };
 // Only these actions represent an actual charge -- everything else
-// (cancelled/expired) shows "—" instead of a price.
+// (cancelled/expired) shows "-" instead of a price.
 const BILLING_PAYMENT_ACTIONS = ['subscribed', 'renewed', 'upgraded', 'downgraded'];
 
 export default function SettingsModals({ activeModal, onClose, onOpenModal }) {
@@ -1281,7 +1281,7 @@ export default function SettingsModals({ activeModal, onClose, onOpenModal }) {
                     >
                       <div>
                         <p className="text-xs font-extrabold text-on-surface">
-                          {PLAN_EMOJI[item.plan] || ''} {PLAN_LABELS[item.plan] || item.plan} — {actionLabel}
+                          {PLAN_EMOJI[item.plan] || ''} {PLAN_LABELS[item.plan] || item.plan} - {actionLabel}
                           {showPrevPlan && (
                             <span className="text-zinc-400 font-medium"> (from {PLAN_LABELS[item.previous_plan] || item.previous_plan})</span>
                           )}
@@ -1295,7 +1295,7 @@ export default function SettingsModals({ activeModal, onClose, onOpenModal }) {
                       </div>
                       {/* Gifted (launch-offer) rows must never show a price -- only
                           the label. Non-payment events (cancelled/expired/rejected)
-                          show "—"/"Rejected" since nothing was charged or refunded. */}
+                          show "-"/"Rejected" since nothing was charged or refunded. */}
                       <span className={`text-xs font-extrabold text-right whitespace-nowrap ${isGift ? 'text-amber-600' : isRejected ? 'text-rose-600 dark:text-rose-300' : 'text-on-surface'}`}>
                         {isGift
                           ? '🎁 Gifted by Sniffr'
@@ -1303,7 +1303,7 @@ export default function SettingsModals({ activeModal, onClose, onOpenModal }) {
                             ? 'Rejected'
                             : BILLING_PAYMENT_ACTIONS.includes(item.action)
                               ? `₹${Number(item.amount_paid).toFixed(2)}`
-                              : '—'}
+                              : '-'}
                       </span>
                     </div>
                   );
@@ -1332,8 +1332,8 @@ export default function SettingsModals({ activeModal, onClose, onOpenModal }) {
                 { title: 'Super Sniff', desc: 'Browse other pets\' profiles without sending a "someone viewed your profile" notification.', icon: 'visibility_off' },
                 { title: 'Unlimited Pets & PawCircles', desc: 'Free accounts are capped at 2 pets, 3 joined PawCircles, and 5 created PawCircles. Premium removes all three limits.', icon: 'all_inclusive' },
                 { title: 'Early Feature Access', desc: 'Gold & Platinum only: try out new Sniffr features before everyone else.', icon: 'auto_awesome' },
-                { title: 'Fewer Ads', desc: 'Ad frequency drops the higher your tier — Platinum sees them only rarely.', icon: 'block' },
-                { title: 'Premium Badge', desc: 'A badge next to your pet\'s name everywhere it appears — Meet, Feed, Spotlight, Chat, and PawCircle.', icon: 'workspace_premium' },
+                { title: 'Fewer Ads', desc: 'Ad frequency drops the higher your tier - Platinum sees them only rarely.', icon: 'block' },
+                { title: 'Premium Badge', desc: 'A badge next to your pet\'s name everywhere it appears - Meet, Feed, Spotlight, Chat, and PawCircle.', icon: 'workspace_premium' },
               ].map(item => (
                 <div key={item.title} className="p-3.5 bg-zinc-50 dark:bg-zinc-800/40 rounded-2xl border border-zinc-100 dark:border-zinc-800 flex items-center gap-3">
                   <div className="w-9 h-9 rounded-full bg-amber-500/10 text-amber-500 flex items-center justify-center flex-shrink-0">
@@ -1938,7 +1938,7 @@ export default function SettingsModals({ activeModal, onClose, onOpenModal }) {
             <div className="space-y-4">
               <div className="p-4 bg-primary/5 rounded-2xl border border-primary/20 space-y-2">
                 <div className="flex justify-between items-center">
-                  <span className="text-xs font-extrabold text-primary">v1.0.0 — Official Launch 🚀</span>
+                  <span className="text-xs font-extrabold text-primary">v1.0.0 - Official Launch 🚀</span>
                   <span className="text-[10px] text-zinc-400 font-semibold">August 2026</span>
                 </div>
                 <ul className="text-xs text-zinc-600 dark:text-zinc-300 space-y-1 list-disc pl-4">
@@ -1954,7 +1954,7 @@ export default function SettingsModals({ activeModal, onClose, onOpenModal }) {
 
               <div className="p-4 bg-zinc-50 dark:bg-zinc-800/40 rounded-2xl border border-zinc-100 dark:border-zinc-800 space-y-2">
                 <div className="flex justify-between items-center">
-                  <span className="text-xs font-extrabold text-on-surface">v0.9.0 — Beta Preview</span>
+                  <span className="text-xs font-extrabold text-on-surface">v0.9.0 - Beta Preview</span>
                   <span className="text-[10px] text-zinc-400 font-semibold">July 2026</span>
                 </div>
                 <ul className="text-xs text-zinc-500 space-y-1 list-disc pl-4">

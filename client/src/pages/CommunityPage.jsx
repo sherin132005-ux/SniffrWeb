@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { useSocket } from '../context/SocketContext';
 import api from '../services/api';
 import UpsellModal from '../components/UpsellModal';
-import { isPremiumGateError } from '../utils/premiumErrors';
+import { isPremiumGateError, isQuotaExceededError, quotaUpsellCopy } from '../utils/premiumErrors';
 import PremiumBadge from '../components/PremiumBadge';
 import Portal from '../components/Portal';
 import useTypingSignal from '../hooks/useTypingSignal';
@@ -560,7 +560,11 @@ export default function CommunityPage() {
         scrollChatToBottom();
       }
     } catch (err) {
-      console.error(err);
+      if (isQuotaExceededError(err)) {
+        setUpsell(quotaUpsellCopy(err));
+      } else {
+        console.error(err);
+      }
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
@@ -1487,7 +1491,7 @@ export default function CommunityPage() {
               </h3>
               <p className="text-xs text-zinc-500 font-medium leading-relaxed mt-1">
                 {isSoleOwner
-                  ? `Since you're the owner and no other members are in "${community.name}", retracting will permanently delete this PawCircle — its chat, media, and announcements can't be recovered.`
+                  ? `Since you're the owner and no other members are in "${community.name}", retracting will permanently delete this PawCircle - its chat, media, and announcements can't be recovered.`
                   : 'You will leave this PawCircle completely and be removed from members. You can search and join again later.'}
               </p>
             </div>

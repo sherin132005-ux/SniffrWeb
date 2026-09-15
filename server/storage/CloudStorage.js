@@ -15,14 +15,32 @@ export class CloudStorage extends StorageAdapter {
       // (voice notes) must be uploaded as resource_type 'video' too, or
       // Cloudinary rejects/mishandles them. See voice-note playback fix.
       const isVideo = file.mimetype.startsWith('video') || file.mimetype.startsWith('audio');
+      // Documents (PDF/Word/Excel/PowerPoint/text) aren't valid Cloudinary
+      // "image" resources -- uploading a .docx with resource_type: 'image'
+      // gets rejected outright. 'raw' is Cloudinary's catch-all for
+      // arbitrary non-image/video files.
+      const isDocument = config.ALLOWED_DOCUMENT_TYPES.includes(file.mimetype);
+      const resourceType = isVideo ? 'video' : isDocument ? 'raw' : 'image';
+      const options = {
+        folder: `sniffr/${subdir}`,
+        resource_type: resourceType,
+      };
+      // Images only, for now: an *incoming* transformation re-encodes the
+      // file at upload time (not just at delivery), so the bytes Cloudinary
+      // actually stores -- and what gets counted against the user's quota
+      // below -- shrink too, typically 30-70% with no visible quality
+      // loss. Deliberately NOT doing this for video: Cloudinary meters
+      // video transformations separately from plain storage, and this
+      // account's plan doesn't confirm that's covered -- revisit once it
+      // is. Not applicable to 'raw' (documents) either.
+      if (resourceType === 'image') {
+        options.transformation = [{ quality: 'auto:good', fetch_format: 'auto' }];
+      }
       const stream = cloudinary.uploader.upload_stream(
-        {
-          folder: `sniffr/${subdir}`,
-          resource_type: isVideo ? 'video' : 'image',
-        },
+        options,
         (error, result) => {
           if (error) return reject(error);
-          resolve(result.secure_url);
+          resolve({ filePath: result.secure_url, bytes: result.bytes });
         }
       );
       stream.end(file.buffer);

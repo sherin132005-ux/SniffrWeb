@@ -105,7 +105,12 @@ export default function PrivacyPage() {
             <a className="inline-block px-8 py-3 bg-gradient-to-br from-primary to-primary-fixed-dim text-white font-bold rounded-full shadow-[0_10px_25px_-5px_rgba(244,167,185,0.4)] active:scale-95 transition-all" href="mailto:privacy@sniffr.app">
               Email Support
             </a>
-            <p className="text-[10px] text-outline pt-4 uppercase tracking-widest">© 2026 Sniffr.co.in</p>
+            <div className="flex justify-center gap-6 pt-4 border-t border-outline-variant/10">
+              <button onClick={() => navigate('/privacy')} className="text-sm font-bold text-primary hover:opacity-80 transition-opacity">Privacy</button>
+              <button onClick={() => navigate('/terms')} className="text-sm font-bold text-on-surface-variant/60 hover:opacity-80 transition-opacity">Terms</button>
+              <button onClick={() => navigate('/faq')} className="text-sm font-bold text-on-surface-variant/60 hover:opacity-80 transition-opacity">FAQ</button>
+            </div>
+            <p className="text-[10px] text-outline pt-4 uppercase tracking-widest">© 2026 Sniffrweb.com</p>
           </div>
         </div>
 

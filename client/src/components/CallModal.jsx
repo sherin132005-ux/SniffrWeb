@@ -679,7 +679,7 @@ export default function CallModal({
           <div>PC: {debugSnapshot.connectionState} / ICE: {debugSnapshot.iceConnectionState}</div>
           <div>
             play(): {debugSnapshot.playResult.status}
-            {debugSnapshot.playResult.error ? ` — ${debugSnapshot.playResult.error}` : ''}
+            {debugSnapshot.playResult.error ? ` - ${debugSnapshot.playResult.error}` : ''}
           </div>
           <div>
             Local: {debugSnapshot.localTracks.length

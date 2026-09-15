@@ -8,8 +8,6 @@ import { thumbnailUrl } from '../utils/media';
 export default function PawCircleTab({ embedMode = true, searchQuery = '' }) {
   const { user, pet } = useAuth();
 
-  console.log('PAWCIRCLE DEBUG — user:', user, 'pet:', pet);
-  
   const navigate = useNavigate();
 
   const [myCommunities, setMyCommunities] = useState([]);

@@ -15,6 +15,8 @@ import usePullToRefresh from '../hooks/usePullToRefresh';
 import Portal from '../components/Portal';
 import PostVideo from '../components/PostVideo';
 import { thumbnailUrl } from '../utils/media';
+import UpsellModal from '../components/UpsellModal';
+import { isQuotaExceededError, quotaUpsellCopy } from '../utils/premiumErrors';
 
 export function ChampionCrown({ className = "w-8 h-8" }) {
   return (
@@ -63,6 +65,7 @@ export default function ProfilePage() {
   const [selectedGalleryIndex, setSelectedGalleryIndex] = useState(0);
   const [showGalleryViewer, setShowGalleryViewer] = useState(false);
   const [toast, setToast] = useState(null);
+  const [upsell, setUpsell] = useState(null);
   const [initialFocusField, setInitialFocusField] = useState(null);
   const [hoveredPost, setHoveredPost] = useState(null);
   const fileInputRef = useRef(null);
@@ -314,11 +317,15 @@ export default function ProfilePage() {
       await refreshProfile();
       loadProfile();
     } catch (err) {
-      console.error(err);
-      // Previously silent -- a rejected upload (quota exceeded, oversized
-      // file, network error) showed the user literally nothing.
-      setToast(err.message || "🐾 Couldn't update your photo. Try again.");
-      setTimeout(() => setToast(null), 3000);
+      if (isQuotaExceededError(err)) {
+        setUpsell(quotaUpsellCopy(err));
+      } else {
+        console.error(err);
+        // Previously silent -- a rejected upload (oversized file, network
+        // error) showed the user literally nothing.
+        setToast(err.message || "🐾 Couldn't update your photo. Try again.");
+        setTimeout(() => setToast(null), 3000);
+      }
     } finally {
       // Without this, re-selecting the SAME file after a failed attempt
       // doesn't fire onChange again (the input's value never changed from
@@ -362,9 +369,9 @@ export default function ProfilePage() {
               <span className="material-symbols-outlined text-primary text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>pets</span>
             </div>
           )}
-          <h1 className="font-extrabold tracking-tighter text-2xl uppercase text-pink-400">
+          <span className="font-extrabold tracking-tighter text-2xl uppercase text-pink-400">
             {isOwner ? 'Sniffr' : pet?.name || 'Profile'}
-          </h1>
+          </span>
         </div>
 
         {isOwner && (
@@ -687,6 +694,10 @@ export default function ProfilePage() {
 
       {showCreate && <CreatePostModal onClose={() => setShowCreate(false)} onPostCreated={loadProfile} />}
 
+      {upsell && (
+        <UpsellModal title={upsell.title} message={upsell.message} onClose={() => setUpsell(null)} />
+      )}
+
       {showPawsitive && (
         <PawsitiveModal
           currentScore={stats.score}
@@ -802,7 +813,7 @@ export default function ProfilePage() {
             </div>
             <h3 className="font-extrabold text-lg text-on-surface mb-2">🐾 Find Friends Nearby</h3>
             <p className="text-sm text-on-surface-variant leading-relaxed mb-6">
-              Setting your location helps Sniffr connect you with furry friends whenever they're nearby — so Meet, Spotlight, and PawCircles can all show you playmates close to home.
+              Setting your location helps Sniffr connect you with furry friends whenever they're nearby - so Meet, Spotlight, and PawCircles can all show you playmates close to home.
             </p>
             <div className="flex gap-3">
               <button

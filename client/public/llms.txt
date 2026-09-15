@@ -1,0 +1,16 @@
+# Sniffr
+
+> Sniffr is a social platform for pet lovers — find your pet's perfect playmate, match with nearby pets, join pet communities, and chat with other pet owners.
+
+Sniffr is a logged-in web application. Most content (feeds, chats, profiles, communities) is only visible to authenticated users and isn't crawlable or reproducible outside the app.
+
+## Public pages
+
+- [Sniffr](https://app.sniffrweb.com/): Sign up or sign in to Sniffr.
+- [Privacy Policy](https://app.sniffrweb.com/privacy): How Sniffr handles user and pet data.
+- [Terms & Conditions](https://app.sniffrweb.com/terms): Terms of use for Sniffr.
+- [FAQ](https://app.sniffrweb.com/faq): Frequently asked questions about matching, messaging, safety, and Premium.
+
+## Marketing site
+
+- [Sniffr landing page](https://sniffrweb.com/): Product overview and marketing site for Sniffr.

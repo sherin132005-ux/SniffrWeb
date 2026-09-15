@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import { authenticateAccess } from '../middleware/auth.js';
+import { rateLimiter } from '../middleware/rateLimiter.js';
+import config from '../config.js';
 import NotificationRepo from '../models/NotificationRepository.js';
 import PetRepo from '../models/PetRepository.js';
 import { notifyMeetMatch } from '../services/meetNotifications.js';
@@ -7,6 +9,7 @@ import { sendServerError } from '../utils/errors.js';
 
 const router = Router();
 router.use(authenticateAccess);
+router.use(rateLimiter(config.RATE_LIMIT.GET));
 
 // GET /api/notifications (with pagination & category filtering)
 router.get('/', async (req, res) => {

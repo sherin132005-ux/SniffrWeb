@@ -1055,7 +1055,7 @@ export default function HomePage() {
             <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center">
               <span className="material-symbols-outlined text-primary" style={{ fontVariationSettings: "'FILL' 1" }}>pets</span>
             </div>
-            <h1 className="font-['Plus_Jakarta_Sans'] font-extrabold tracking-tighter text-2xl uppercase text-pink-400">Sniffr</h1>
+            <span className="font-['Plus_Jakarta_Sans'] font-extrabold tracking-tighter text-2xl uppercase text-pink-400">Sniffr</span>
           </div>
 
           {/* Notification Bell Button */}

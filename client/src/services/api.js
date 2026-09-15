@@ -122,6 +122,10 @@ async function request(url, options = {}) {
     // Preserve structured error data (e.g., validation errors array)
     if (errBody.errors) error.errors = errBody.errors;
     if (errBody.error) error.code = errBody.error;
+    // QUOTA_EXCEEDED specifically (see utils/premiumErrors.js's
+    // quotaUpsellCopy) needs these to show concrete "X of Y used" copy.
+    if (errBody.usedBytes !== undefined) error.usedBytes = errBody.usedBytes;
+    if (errBody.quotaBytes !== undefined) error.quotaBytes = errBody.quotaBytes;
     throw error;
   }
   return res.json();

@@ -11,13 +11,13 @@ const SLIDES = [
   },
   {
     emoji: '👑',
-    title: 'Sniffr Gold — On the House',
+    title: 'Sniffr Gold - On the House',
     body: 'Free Sniffr Gold, no strings attached: unlimited pet profiles, unlimited PawCircles, Undo Like, Super Sniff stealth browsing, and 2 Spotlight Boosts every cycle.',
   },
   {
     emoji: '🐾',
     title: 'Wear the Badge Proudly',
-    body: 'Your founding-member status is yours to keep, and your Premium badge will show up everywhere your pet\'s name does — Meet, Feed, Spotlight, Chat, and PawCircle.',
+    body: 'Your founding-member status is yours to keep, and your Premium badge will show up everywhere your pet\'s name does - Meet, Feed, Spotlight, Chat, and PawCircle.',
   },
 ];
 

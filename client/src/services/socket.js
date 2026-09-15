@@ -15,10 +15,6 @@ export function connectSocket() {
     reconnectionAttempts: 10
   });
 
-  socket.on('connect', () => console.log('🐾 Socket connected'));
-  socket.on('disconnect', (reason) => console.log('Socket disconnected:', reason));
-  socket.on('connect_error', (err) => console.log('Socket error:', err.message));
-
   return socket;
 }
 

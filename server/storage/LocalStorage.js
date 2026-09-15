@@ -16,6 +16,14 @@ const MIME_EXTENSIONS = {
   'audio/mpeg': '.mp3',
   'audio/ogg': '.ogg',
   'audio/wav': '.wav',
+  'application/pdf': '.pdf',
+  'application/msword': '.doc',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+  'application/vnd.ms-excel': '.xls',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+  'application/vnd.ms-powerpoint': '.ppt',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
+  'text/plain': '.txt',
 };
 
 export class LocalStorage extends StorageAdapter {
@@ -37,7 +45,12 @@ export class LocalStorage extends StorageAdapter {
     const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
     const filePath = path.join(dir, filename);
     fs.writeFileSync(filePath, file.buffer);
-    return path.join(subdir, filename).replace(/\\/g, '/');
+    // bytes matches the input size unchanged -- local disk storage doesn't
+    // compress anything (that only happens via Cloudinary, see
+    // CloudStorage.js). Returned alongside filePath so callers (see
+    // mediaService.uploadWithQuota) can record actual stored size
+    // consistently across both storage adapters.
+    return { filePath: path.join(subdir, filename).replace(/\\/g, '/'), bytes: file.buffer.length };
   }
 
   async delete(filePath) {

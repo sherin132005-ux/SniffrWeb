@@ -9,6 +9,8 @@ import storage from '../storage/index.js';
 import { sendRealtimeNotification } from '../socket/notifications.js';
 import { sendPaymentApprovedEmail, sendPaymentRejectedEmail, sendAdminPaymentReviewEmail } from '../utils/mailer.js';
 import config from '../config.js';
+import { verifyFileSignature } from '../utils/fileSignature.js';
+import { InvalidFileError } from './mediaService.js';
 
 // Calendar-month addition, not months*30 days -- so Plus (1mo)/Gold (3mo)/
 // Platinum (12mo) expire on the same day-of-month they were purchased
@@ -329,9 +331,14 @@ export async function submitManualPaymentProof(userId, sessionId, { paymentMetho
   );
   if (reused) return { success: false, reason: 'UTR_ALREADY_USED' };
 
+  if (!verifyFileSignature(file.buffer, file.mimetype)) {
+    throw new InvalidFileError();
+  }
+
   // Upload only after every DB-backed validation above has passed, so an
   // invalid/duplicate/foreign session never wastes a Cloudinary upload.
-  const proofUrl = await storage.upload(file, 'payment_proofs');
+  const { filePath } = await storage.upload(file, 'payment_proofs');
+  const proofUrl = storage.getUrl(filePath);
 
   try {
     await db.run(

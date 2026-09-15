@@ -101,15 +101,15 @@ export default function TermsPage() {
             </div>
             
             <div className="flex justify-center gap-6 pt-4 border-t border-outline-variant/10">
-              <button onClick={() => navigate('/privacy')} className="text-sm font-bold text-primary hover:opacity-80 transition-opacity">Privacy</button>
+              <button onClick={() => navigate('/privacy')} className="text-sm font-bold text-on-surface-variant/60 hover:opacity-80 transition-opacity">Privacy</button>
               <button onClick={() => navigate('/terms')} className="text-sm font-bold text-primary hover:opacity-80 transition-opacity">Terms</button>
-              <button className="text-sm font-bold text-on-surface-variant/60 hover:opacity-80 transition-opacity">FAQ</button>
+              <button onClick={() => navigate('/faq')} className="text-sm font-bold text-on-surface-variant/60 hover:opacity-80 transition-opacity">FAQ</button>
             </div>
 
             <p className="text-xs text-on-surface-variant mt-4">
               Questions? Contact us at support@sniffr.app
             </p>
-            <p className="text-[10px] text-outline pt-4 uppercase tracking-widest">© 2026 Sniffr.co.in</p>
+            <p className="text-[10px] text-outline pt-4 uppercase tracking-widest">© 2026 Sniffrweb.com</p>
           </div>
         </div>
 

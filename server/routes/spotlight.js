@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import { authenticateAccess } from '../middleware/auth.js';
+import { rateLimiter } from '../middleware/rateLimiter.js';
+import config from '../config.js';
 import SpotlightRepo from '../models/SpotlightRepository.js';
 import PetRepo from '../models/PetRepository.js';
 import { checkAndNotifyAchievement } from '../services/spotlightAchievements.js';
@@ -7,6 +9,7 @@ import { sendServerError } from '../utils/errors.js';
 
 const router = Router();
 router.use(authenticateAccess);
+router.use(rateLimiter(config.RATE_LIMIT.GET));
 
 router.get('/', async (req, res) => {
   try {

@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import { getCurrentGPSLocation, getStoredLocation } from '../services/locationService';
 import UpsellModal from '../components/UpsellModal';
-import { isPremiumGateError } from '../utils/premiumErrors';
+import { isPremiumGateError, isQuotaExceededError, quotaUpsellCopy } from '../utils/premiumErrors';
 import Portal from '../components/Portal';
 
 export default function CreateProfilePage() {
@@ -109,6 +109,8 @@ export default function CreateProfilePage() {
     } catch (err) {
       if (isPremiumGateError(err)) {
         setUpsell({ title: 'Pet Profile Limit Reached', message: err.message });
+      } else if (isQuotaExceededError(err)) {
+        setUpsell(quotaUpsellCopy(err));
       } else {
         console.error(err);
       }

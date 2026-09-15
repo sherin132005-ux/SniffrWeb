@@ -1,8 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
 import api from '../services/api';
 import Portal from './Portal';
+import UpsellModal from './UpsellModal';
+import { isQuotaExceededError, quotaUpsellCopy } from '../utils/premiumErrors';
 
 export default function CreatePostModal({ onClose, onPostCreated }) {
+  const [upsell, setUpsell] = useState(null);
   const [caption, setCaption] = useState('');
   const [hashtags, setHashtags] = useState('');
   const [taggedUsersInput, setTaggedUsersInput] = useState('');
@@ -193,8 +196,12 @@ export default function CreatePostModal({ onClose, onPostCreated }) {
       if (onPostCreated) onPostCreated();
       onClose();
     } catch (err) {
-      console.error('Post failed:', err);
-      setErrorMessage(err.message || '🐾 Sniff... something went wrong while posting.');
+      if (isQuotaExceededError(err)) {
+        setUpsell(quotaUpsellCopy(err));
+      } else {
+        console.error('Post failed:', err);
+        setErrorMessage(err.message || '🐾 Sniff... something went wrong while posting.');
+      }
     } finally {
       setLoading(false);
     }
@@ -382,6 +389,9 @@ export default function CreatePostModal({ onClose, onPostCreated }) {
         </div>
       </div>
     </div>
+    {upsell && (
+      <UpsellModal title={upsell.title} message={upsell.message} onClose={() => setUpsell(null)} />
+    )}
     </Portal>
   );
 }

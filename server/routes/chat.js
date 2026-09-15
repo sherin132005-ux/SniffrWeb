@@ -14,13 +14,19 @@ const router = Router();
 router.use(authenticateAccess);
 const upload = multer({
   storage: multer.memoryStorage(),
+  // The outer bound -- covers images/video/audio at their normal size.
+  // Documents get a tighter cap enforced separately below, after multer
+  // hands the parsed file to the route handler (multer's own `limits`
+  // is a single global value per instance, it can't vary by mimetype).
   limits: { fileSize: config.MAX_FILE_SIZE },
   fileFilter: (req, file, cb) => {
     // Includes ALLOWED_AUDIO_TYPES -- without it, voice notes (audio/webm)
     // were silently dropped by this filter: Multer just skips a rejected
     // file with no error, so the message got created with no media
-    // attached at all, which is why it could never play back.
-    const allowed = [...config.ALLOWED_IMAGE_TYPES, ...config.ALLOWED_VIDEO_TYPES, ...config.ALLOWED_AUDIO_TYPES];
+    // attached at all, which is why it could never play back. Same story
+    // for ALLOWED_DOCUMENT_TYPES -- without it, chat file attachments
+    // (PDF/Word/Excel/PowerPoint/text) were silently dropped the same way.
+    const allowed = [...config.ALLOWED_IMAGE_TYPES, ...config.ALLOWED_VIDEO_TYPES, ...config.ALLOWED_AUDIO_TYPES, ...config.ALLOWED_DOCUMENT_TYPES];
     cb(null, allowed.includes(file.mimetype));
   }
 });
@@ -108,10 +114,19 @@ router.post('/messages', rateLimiter(config.RATE_LIMIT.POST), upload.single('med
     let mediaUrl = null;
     let messageType = 'text';
     if (req.file) {
+      const isDocument = config.ALLOWED_DOCUMENT_TYPES.includes(req.file.mimetype);
+      if (isDocument && req.file.size > config.MAX_DOCUMENT_SIZE) {
+        return res.status(413).json({
+          error: 'FILE_TOO_LARGE',
+          message: `Documents must be under ${Math.floor(config.MAX_DOCUMENT_SIZE / (1024 * 1024))}MB.`,
+        });
+      }
+
       const uploaded = await uploadWithQuota(req.user.id, req.file, 'chat');
       mediaUrl = uploaded.url;
       messageType = req.file.mimetype.startsWith('audio') ? 'voice'
-        : req.file.mimetype.startsWith('video') ? 'video' : 'image';
+        : req.file.mimetype.startsWith('video') ? 'video'
+        : isDocument ? 'file' : 'image';
     }
 
     const message = await MessageRepo.sendMessage(parseInt(conversationId), req.user.id, content || '', mediaUrl, messageType);

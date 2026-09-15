@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -17,6 +17,14 @@ import TypingDots from '../components/chat/TypingDots';
 import { REACTION_EMOJIS, REACTION_LABELS } from '../constants/reactions';
 import PostVideo from '../components/PostVideo';
 import { avatarUrl, thumbnailUrl } from '../utils/media';
+import UpsellModal from '../components/UpsellModal';
+import { isQuotaExceededError, quotaUpsellCopy } from '../utils/premiumErrors';
+
+// emoji-picker-react's emoji dataset adds ~330KB to whatever chunk imports
+// it eagerly -- ChatPage is already the app's largest route chunk, and most
+// chat sessions never open the picker at all. Split into its own chunk,
+// fetched only the first time someone actually taps the emoji button.
+const EmojiPicker = lazy(() => import('emoji-picker-react'));
 
 function formatPresence(isOnline, lastActiveAt) {
   if (isOnline) return 'Active now';
@@ -404,6 +412,7 @@ export default function ChatPage() {
   const [activeConv, setActiveConv] = useState(null);
   const [messages, setMessages] = useState([]);
   const [newMsg, setNewMsg] = useState('');
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [matches, setMatches] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -451,6 +460,11 @@ export default function ChatPage() {
   const [selectedPetForCard, setSelectedPetForCard] = useState(null);
 
   const [preSendMedia, setPreSendMedia] = useState([]);
+  // Guards every send path (text/media/voice) against a duplicate send from
+  // a rapid double-tap/double-Enter while the previous send is still
+  // in-flight (upload + socket ack round-trip isn't instant).
+  const [sending, setSending] = useState(false);
+  const [upsell, setUpsell] = useState(null);
 
   const [mediaViewer, setMediaViewer] = useState(null);
   const [selectedSharedPostId, setSelectedSharedPostId] = useState(null);
@@ -873,6 +887,7 @@ const [messageReactions, setMessageReactions] = useState({});
     if (activeConv) draftsRef.current[activeConv.id] = '';
     setAtSuggestions([]);
     setShowSecondaryTray(false);
+    setShowEmojiPicker(false);
   };
 
   const retryFailedMessage = (clientTempId) => {
@@ -900,23 +915,51 @@ const [messageReactions, setMessageReactions] = useState({});
     if (preSendMedia.length === 0) return;
     const mediaList = [...preSendMedia];
     setPreSendMedia([]);
+    const caption = newMsg.trim();
+    setNewMsg('');
 
-    for (const item of mediaList) {
+    for (let i = 0; i < mediaList.length; i++) {
+      const item = mediaList[i];
       const formData = new FormData();
       formData.append('media', item.file);
       formData.append('conversationId', activeConv.id);
+      // Any typed caption rides along with the last item in the batch.
+      // POST /chat/messages already creates the message row AND broadcasts
+      // it over the socket server-side -- calling sendMessage() again
+      // after this (the old code) sent the exact same media a second time
+      // as a brand new message. Don't call it.
+      if (caption && i === mediaList.length - 1) {
+        formData.append('content', caption);
+      }
       try {
-        const res = await api.post('/chat/messages', formData);
-        sendMessage(item.type, res.media_url);
+        await api.post('/chat/messages', formData);
       } catch (err) {
+        if (isQuotaExceededError(err)) {
+          setUpsell(quotaUpsellCopy(err));
+          break; // rest of the batch would fail the same way, don't keep trying
+        }
         console.error('Media upload loop failed:', err);
       }
     }
   };
 
   const handleComposerSend = async () => {
+    // A tap/Enter that lands while the previous send is still uploading
+    // (or waiting on the socket ack) must be ignored -- otherwise the same
+    // media/voice note/text goes out twice, since nothing else in this
+    // path was blocking re-entry.
+    if (sending) return;
+    setSending(true);
+    try {
+      await handleComposerSendInner();
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleComposerSendInner = async () => {
     if (preSendMedia.length > 0) {
-      handleSendAllMedia();
+      await handleSendAllMedia();
       return;
     }
 
@@ -966,16 +1009,28 @@ const [messageReactions, setMessageReactions] = useState({});
     sendMessage();
   };
 
-  const handleMediaUpload = async (e, forceType = null) => {
+  const handleMediaUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file || !activeConv) return;
     const formData = new FormData();
     formData.append('media', file);
     formData.append('conversationId', activeConv.id);
+    // FileCard renders msg.content as the filename (see its render branch
+    // below) -- without this, every document attachment shows up as just
+    // "Document" with no name.
+    formData.append('content', file.name);
     try {
-      const res = await api.post('/chat/messages', formData);
-      sendMessage(forceType || res.message_type, res.media_url);
-    } catch (err) { console.error('Upload failed', err); }
+      // POST /chat/messages already creates the message row and broadcasts
+      // it over the socket server-side -- no follow-up sendMessage() call
+      // needed (that used to send the same file a second time).
+      await api.post('/chat/messages', formData);
+    } catch (err) {
+      if (isQuotaExceededError(err)) {
+        setUpsell(quotaUpsellCopy(err));
+      } else {
+        console.error('Upload failed', err);
+      }
+    }
   };
 
   const handleMediaSelection = (e) => {
@@ -1013,7 +1068,17 @@ const [messageReactions, setMessageReactions] = useState({});
       return;
     }
 
-    handleMediaUpload(e, 'file');
+    // Mirrors server/config.js's MAX_DOCUMENT_SIZE -- checked here too so a
+    // too-large file doesn't waste an upload round-trip before being
+    // rejected server-side anyway.
+    const MAX_DOCUMENT_SIZE = 5 * 1024 * 1024;
+    if (file.size > MAX_DOCUMENT_SIZE) {
+      alert("That document is too large. Documents must be under 5MB.");
+      e.target.value = '';
+      return;
+    }
+
+    handleMediaUpload(e);
   };
 
   const handleConfirmMeetup = () => {
@@ -1091,18 +1156,36 @@ const [messageReactions, setMessageReactions] = useState({});
   };
 
   const handleSendVoiceNote = async () => {
-    if (!recordBlob || !activeConv) return;
-    const file = new File([recordBlob], `voice_${Date.now()}.webm`, { type: 'audio/webm' });
+    if (!recordBlob || !activeConv || sending) return;
+    setSending(true);
+    // Capture the blob/preview locally and clear the staged-recording state
+    // *before* the upload starts, not after it resolves -- otherwise the
+    // preview (and its Send button) stays on screen for the whole upload,
+    // so a second tap while it's still uploading re-sends the same
+    // recording a second time.
+    const blob = recordBlob;
+    const previewUrl = recordPreviewUrl;
+    setRecordPreviewUrl(null);
+    setRecordBlob(null);
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+
+    const file = new File([blob], `voice_${Date.now()}.webm`, { type: 'audio/webm' });
     const formData = new FormData();
     formData.append('media', file);
     formData.append('conversationId', activeConv.id);
     try {
-      const res = await api.post('/chat/messages', formData);
-      sendMessage('voice', res.media_url);
-      setRecordPreviewUrl(null);
-      setRecordBlob(null);
+      // POST /chat/messages already creates the message row and broadcasts
+      // it over the socket server-side -- no follow-up sendMessage() call
+      // needed (that used to send the same recording a second time).
+      await api.post('/chat/messages', formData);
     } catch (err) {
-      console.error(err);
+      if (isQuotaExceededError(err)) {
+        setUpsell(quotaUpsellCopy(err));
+      } else {
+        console.error(err);
+      }
+    } finally {
+      setSending(false);
     }
   };
 
@@ -1165,15 +1248,16 @@ const [messageReactions, setMessageReactions] = useState({});
       e.preventDefault();
       e.stopPropagation();
     }
+    setShowSecondaryTray(false);
+    setShowEmojiPicker(v => !v);
+  };
 
+  const handleEmojiSelect = (emojiData) => {
     const inputEl = inputFieldRef.current;
-    if (!inputEl) return;
+    const emojiToAdd = emojiData.emoji;
 
-    inputEl.focus();
-
-    const start = typeof inputEl.selectionStart === 'number' ? inputEl.selectionStart : newMsg.length;
-    const end = typeof inputEl.selectionEnd === 'number' ? inputEl.selectionEnd : newMsg.length;
-    const emojiToAdd = '🐾';
+    const start = inputEl && typeof inputEl.selectionStart === 'number' ? inputEl.selectionStart : newMsg.length;
+    const end = inputEl && typeof inputEl.selectionEnd === 'number' ? inputEl.selectionEnd : newMsg.length;
 
     const updated = newMsg.substring(0, start) + emojiToAdd + newMsg.substring(end);
     setNewMsg(updated);
@@ -1188,13 +1272,6 @@ const [messageReactions, setMessageReactions] = useState({});
         }
       }
     });
-
-    try {
-      if ('showPicker' in inputEl && typeof inputEl.showPicker === 'function') {
-        inputEl.showPicker();
-      }
-    } catch (err) {
-    }
   };
 
   const openMediaViewer = (mediaUrl, index, list) => {
@@ -1309,8 +1386,6 @@ const [messageReactions, setMessageReactions] = useState({});
           <div className="flex gap-2">
             <button
   onClick={() => {
-    console.log("AUDIO CALL CLICKED", activeConv);
-
     startCall({
       type: 'audio',
       name: activeConv.partner_name,
@@ -1602,7 +1677,25 @@ className="w-10 h-10 rounded-full bg-surface-container-low hover:bg-emerald-100 
           )}
 
           <div className="flex flex-col gap-2">
-            
+
+            {showEmojiPicker && (
+              <div className="mb-2 animate-scale-up flex justify-center">
+                <Suspense fallback={
+                  <div className="w-full flex items-center justify-center text-zinc-400 text-xs" style={{ height: 360 }}>
+                    Loading emoji…
+                  </div>
+                }>
+                  <EmojiPicker
+                    onEmojiClick={handleEmojiSelect}
+                    autoFocusSearch={false}
+                    lazyLoadEmojis
+                    width="100%"
+                    height={360}
+                  />
+                </Suspense>
+              </div>
+            )}
+
             {showSecondaryTray && (
               <div className="bg-white dark:bg-zinc-900 rounded-3xl p-4 border border-outline-variant/10 shadow-lg mb-2 animate-scale-up">
                 <div className="flex items-center justify-around w-full max-w-sm mx-auto">
@@ -1670,7 +1763,7 @@ className="w-10 h-10 rounded-full bg-surface-container-low hover:bg-emerald-100 
                   <button onClick={() => { setRecordPreviewUrl(null); setRecordBlob(null); }} className="text-zinc-400 hover:text-red-500">
                     <span className="material-symbols-outlined text-sm">delete</span>
                   </button>
-                  <button onClick={handleSendVoiceNote} className="w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center active:scale-95 shadow-md">
+                  <button onClick={handleSendVoiceNote} disabled={sending} className="w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center active:scale-95 shadow-md disabled:opacity-40">
                     <span className="material-symbols-outlined text-sm">send</span>
                   </button>
                 </div>
@@ -1698,7 +1791,7 @@ className="w-10 h-10 rounded-full bg-surface-container-low hover:bg-emerald-100 
                   <span className="material-symbols-outlined text-[20px]">mic</span>
                 </button>
 
-                <button onClick={() => setShowSecondaryTray(!showSecondaryTray)} className={`text-zinc-400 hover:text-primary transition-all active:scale-90 ${showSecondaryTray ? 'rotate-45 text-primary' : ''}`} title="More options">
+                <button onClick={() => { setShowEmojiPicker(false); setShowSecondaryTray(!showSecondaryTray); }} className={`text-zinc-400 hover:text-primary transition-all active:scale-90 ${showSecondaryTray ? 'rotate-45 text-primary' : ''}`} title="More options">
                   <span className="material-symbols-outlined text-[20px]">add</span>
                 </button>
 
@@ -1713,12 +1806,12 @@ className="w-10 h-10 rounded-full bg-surface-container-low hover:bg-emerald-100 
   handleInputChange(e.target.value);
   notifyTyping();
 }}
-                  onKeyDown={e => e.key === 'Enter' && (newMsg.trim() || preSendMedia.length > 0) && handleComposerSend()}
+                  onKeyDown={e => e.key === 'Enter' && !sending && (newMsg.trim() || preSendMedia.length > 0) && handleComposerSend()}
                 />
 
                 <button
                   onClick={handleComposerSend}
-                  disabled={!newMsg.trim() && preSendMedia.length === 0}
+                  disabled={sending || (!newMsg.trim() && preSendMedia.length === 0)}
                   className="w-9 h-9 rounded-full bg-primary text-white flex items-center justify-center shadow-md active:scale-90 transition-all disabled:opacity-40 hover:scale-105 flex-shrink-0 mr-1"
                 >
                   <span className="material-symbols-outlined text-[16px]">pets</span>
@@ -1727,6 +1820,10 @@ className="w-10 h-10 rounded-full bg-surface-container-low hover:bg-emerald-100 
             )}
           </div>
         </div>
+
+        {upsell && (
+          <UpsellModal title={upsell.title} message={upsell.message} onClose={() => setUpsell(null)} />
+        )}
 
         {showMeetupBottomSheet && (
           <div className="fixed inset-0 z-[150] bg-black/50 flex items-end justify-center pb-[env(safe-area-inset-bottom)]" onClick={() => setShowMeetupBottomSheet(false)}>
@@ -1989,7 +2086,7 @@ className="w-10 h-10 rounded-full bg-surface-container-low hover:bg-emerald-100 
             <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center">
               <span className="material-symbols-outlined text-primary text-2xl" style={{ fontVariationSettings: "'FILL' 1" }}>pets</span>
             </div>
-            <h1 className="font-extrabold tracking-tighter text-2xl uppercase text-pink-400">Sniffr</h1>
+            <span className="font-extrabold tracking-tighter text-2xl uppercase text-pink-400">Sniffr</span>
           </div>
         </div>
       </header>
