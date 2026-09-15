@@ -191,6 +191,26 @@ class PetRepository extends BaseRepository {
     return this.attachCompletionStats(pet);
   }
 
+  // Same shape as getProfileWithStats, keyed by pet_username instead of id
+  // -- backs the app.sniffrweb.com/kitty top-level profile URL (see
+  // routes/profile.js's GET /:id, which branches here for a non-numeric
+  // segment). pet_username is always stored with a leading "@" (see
+  // utils/petUsername.js); accepts the value with or without one so a
+  // caller doesn't have to know that storage detail.
+  async getProfileWithStatsByUsername(username) {
+    const handle = `@${String(username).replace(/^@+/, '')}`;
+    const pet = await db.get(`
+      SELECT p.*,
+        (SELECT COUNT(*) FROM likes l JOIN posts po ON l.post_id = po.id WHERE po.pet_id = p.id) as total_likes,
+        (SELECT COUNT(*) FROM matches WHERE pet1_id = p.id OR pet2_id = p.id) as match_count,
+        (SELECT COUNT(*) FROM posts WHERE pet_id = p.id) as post_count
+      FROM pets p WHERE p.pet_username = ?
+    `, [handle]);
+    if (!pet) return null;
+
+    return this.attachCompletionStats(pet);
+  }
+
   async updatePawsitiveScore(petId, score) {
     const clamped = Math.max(0, Math.min(100, parseInt(score)));
     await db.run('UPDATE pets SET pawsitive_score = ? WHERE id = ?', [clamped, petId]);

@@ -5,6 +5,7 @@ import api from '../services/api';
 import { getCurrentGPSLocation, getStoredLocation } from '../services/locationService';
 import UpsellModal from '../components/UpsellModal';
 import { isPremiumGateError, isQuotaExceededError, quotaUpsellCopy } from '../utils/premiumErrors';
+import { validatePetUsername } from '../utils/petUsername';
 import Portal from '../components/Portal';
 
 export default function CreateProfilePage() {
@@ -74,6 +75,11 @@ export default function CreateProfilePage() {
       alert("Please provide your location (GPS or Manual) to continue.");
       return;
     }
+    const usernameError = validatePetUsername(form.pet_username);
+    if (usernameError) {
+      alert(usernameError);
+      return;
+    }
     setLoading(true);
     try {
       const fd = new FormData();
@@ -111,6 +117,8 @@ export default function CreateProfilePage() {
         setUpsell({ title: 'Pet Profile Limit Reached', message: err.message });
       } else if (isQuotaExceededError(err)) {
         setUpsell(quotaUpsellCopy(err));
+      } else if (err.code === 'USERNAME_TAKEN' || err.code === 'RESERVED_USERNAME' || err.code === 'INVALID_USERNAME_FORMAT') {
+        alert(err.message);
       } else {
         console.error(err);
       }

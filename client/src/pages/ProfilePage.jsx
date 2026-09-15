@@ -17,6 +17,8 @@ import PostVideo from '../components/PostVideo';
 import { thumbnailUrl } from '../utils/media';
 import UpsellModal from '../components/UpsellModal';
 import { isQuotaExceededError, quotaUpsellCopy } from '../utils/premiumErrors';
+import { validatePetUsername } from '../utils/petUsername';
+import NotFoundPage from './NotFoundPage';
 
 export function ChampionCrown({ className = "w-8 h-8" }) {
   return (
@@ -225,6 +227,18 @@ export default function ProfilePage() {
       const url = id ? `/profile/${id}` : '/profile';
       const res = await api.get(`${url}?cycleStart=${cycleStartStr}`);
       setPet(res.pet);
+      // Upgrade the address bar to the clean, shareable username URL
+      // (app.sniffrweb.com/kitty) once the pet's real username is known --
+      // covers every way this page can be reached (/profile, the legacy
+      // numeric /profile/:id, or already being on /kitty, in which case
+      // this is a no-op since id already equals cleanUsername). replace:
+      // true so this doesn't add a junk back-button entry.
+      if (res.pet?.pet_username) {
+        const cleanUsername = res.pet.pet_username.replace(/^@+/, '');
+        if (id !== cleanUsername) {
+          navigate(`/${cleanUsername}`, { replace: true });
+        }
+      }
       // "Licks" = sum of likes across ALL posts (computed server-side in getProfileWithStats)
       const totalLikes = res.pet?.total_likes || 0;
       const matchCount = res.pet?.match_count || 0;
@@ -353,6 +367,13 @@ export default function ProfilePage() {
       <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
     </div>
   );
+
+  // With the top-level /:username route, this component now gets reached
+  // by any arbitrary unmatched URL segment (typos, guesses, a stale/deleted
+  // pet's old link) -- previously pet==null here fell through to the real
+  // render below and threw on the first pet.whatever access, since nothing
+  // guarded against it.
+  if (!pet) return <NotFoundPage />;
 
   return (
     <div className="bg-surface text-on-surface min-h-screen pb-32 lg:pb-8" {...handlers}>
@@ -1000,6 +1021,11 @@ function EditProfileModal({ pet, initialFocusField, onClose, onSaved }) {
     e.preventDefault();
     if (!isLocationValid) {
       setErrorMessage("Please provide your location (GPS or Manual) to continue.");
+      return;
+    }
+    const usernameError = validatePetUsername(form.pet_username);
+    if (usernameError) {
+      setErrorMessage(usernameError);
       return;
     }
     setLoading(true);

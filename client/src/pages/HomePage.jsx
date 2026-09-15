@@ -14,18 +14,25 @@ import PostVideo from '../components/PostVideo';
 import { avatarUrl, feedMediaUrl } from '../utils/media';
 
 // ── Custom SVG Icon Components (sized by viewBox for visual-weight matching) ──
+// A color-filter-only "liked" state reads as barely-there against some
+// backgrounds (a colored glow around an otherwise-identical icon shape) --
+// the padded, colored pill background makes "you already liked this"
+// unmistakable at a glance, independent of how strong the filter itself
+// renders.
 const PawLikeIcon = ({ active, className = '' }) => (
-  <img
-    src="/paw-like-icon.png"
-    alt="Like"
-    className={`object-contain transition-all duration-200 ${className} ${active ? '' : 'opacity-60 dark:invert'}`}
-    style={{
-      filter: active
-        ? 'invert(79%) sepia(29%) saturate(836%) hue-rotate(311deg) brightness(102%) contrast(94%) drop-shadow(0 2px 6px rgba(244,167,185,0.4))'
-        : 'none'
-    }}
-    draggable={false}
-  />
+  <span className={`inline-flex items-center justify-center rounded-full transition-all duration-200 ${active ? 'bg-primary/15 dark:bg-primary/25 p-1.5 scale-110' : 'p-1.5'}`}>
+    <img
+      src="/paw-like-icon.png"
+      alt="Like"
+      className={`object-contain transition-all duration-200 ${className} ${active ? '' : 'opacity-60 dark:invert'}`}
+      style={{
+        filter: active
+          ? 'invert(79%) sepia(29%) saturate(836%) hue-rotate(311deg) brightness(102%) contrast(94%) drop-shadow(0 2px 6px rgba(244,167,185,0.4))'
+          : 'none'
+      }}
+      draggable={false}
+    />
+  </span>
 );
 
 const BoneIcon = ({ className = '' }) => (
@@ -1331,7 +1338,23 @@ export default function HomePage() {
 
                     {/* Media */}
                     {post.media_url && (
-                      <div className="relative overflow-hidden bg-black/5 flex items-center justify-center select-none" style={{ maxHeight: 'min(480px, 70vh)' }}>
+                      <div
+                        className="relative overflow-hidden bg-black/5 flex items-center justify-center select-none"
+                        style={{ maxHeight: 'min(480px, 70vh)' }}
+                        onDoubleClick={() => {
+                          // Touch devices already get double-tap via the
+                          // onTouchStart/Move/End trio on the card wrapper
+                          // above (handlePostTouchEnd -> handleDoubleTap).
+                          // Those never fire for mouse/trackpad input, so
+                          // double-click was silently doing nothing outside
+                          // a touchscreen. likePost() is a no-op if already
+                          // liked, so this can't double-toggle even if a
+                          // touch device's synthetic dblclick also fires.
+                          setDoubleTapPost(post.id);
+                          likePost(post.id);
+                          setTimeout(() => setDoubleTapPost(null), 850);
+                        }}
+                      >
                         {post.media_type === 'video' ? (
                           <PostVideo src={post.media_url} />
                         ) : (

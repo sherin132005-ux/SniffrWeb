@@ -13,6 +13,7 @@ import db, { withTransaction } from '../db/connection.js';
 import { sendRealtimeNotification } from '../socket/notifications.js';
 import { canAddPet, canUseSuperSniff } from '../services/premiumGate.js';
 import { sendServerError } from '../utils/errors.js';
+import { normalizePetUsername } from '../utils/petUsername.js';
 
 const router = Router();
 router.use(authenticateAccess);
@@ -285,6 +286,13 @@ router.post('/', upload.single('avatar'), async (req, res) => {
       });
     }
 
+    // Validated before the avatar upload runs -- no point spending a
+    // Cloudinary upload on a request that's going to be rejected anyway.
+    const usernameResult = normalizePetUsername(req.body.pet_username);
+    if (usernameResult.error) {
+      return res.status(400).json({ error: usernameResult.error, message: usernameResult.message });
+    }
+
     let avatarUrl = null;
     if (req.file) {
       const uploaded = await uploadWithQuota(req.user.id, req.file, 'avatars');
@@ -294,7 +302,7 @@ router.post('/', upload.single('avatar'), async (req, res) => {
     const petData = {
       user_id: req.user.id,
       name: req.body.name,
-      pet_username: req.body.pet_username ? `@${req.body.pet_username.replace('@', '')}` : null,
+      pet_username: usernameResult.value,
       type: req.body.type || 'dog',
       gender: req.body.gender || 'male',
       age: parseInt(req.body.age) || 1,
@@ -350,6 +358,14 @@ router.post('/', upload.single('avatar'), async (req, res) => {
         limit: err.limit,
       });
     }
+    // Postgres unique_violation -- pet_username_key. Raced past the
+    // application-level check-then-act (two signups picking the same
+    // handle at once), or just never checked availability up front; either
+    // way this is the DB's own uniqueness guarantee doing its job, not an
+    // unexpected server error.
+    if (err.code === '23505') {
+      return res.status(409).json({ error: 'USERNAME_TAKEN', message: 'That username is already taken. Please choose another.' });
+    }
     sendServerError(res, err);
   }
 });
@@ -358,6 +374,14 @@ router.put('/', upload.single('avatar'), async (req, res) => {
   try {
     const pet = await PetRepo.findByUserId(req.user.id);
     if (!pet) return res.status(404).json({ error: 'NO_PET' });
+
+    if (req.body.pet_username !== undefined) {
+      const usernameResult = normalizePetUsername(req.body.pet_username);
+      if (usernameResult.error) {
+        return res.status(400).json({ error: usernameResult.error, message: usernameResult.message });
+      }
+      req.body.pet_username = usernameResult.value;
+    }
 
     const updates = {};
     const fields = ['name', 'pet_username', 'type', 'gender', 'breed_type', 'breed_name', 'bio', 'location_text', 'country', 'state', 'city', 'area'];
@@ -380,6 +404,9 @@ router.put('/', upload.single('avatar'), async (req, res) => {
     }
     res.json(updated);
   } catch (err) {
+    if (err.code === '23505') {
+      return res.status(409).json({ error: 'USERNAME_TAKEN', message: 'That username is already taken. Please choose another.' });
+    }
     sendServerError(res, err);
   }
 });
@@ -431,9 +458,13 @@ router.patch('/super-sniff', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const petId = parseInt(req.params.id, 10);
-    if (isNaN(petId)) return res.status(400).json({ error: 'INVALID_ID' });
-
-    const stats = await PetRepo.getProfileWithStats(petId);
+    // A non-numeric :id segment is a pet_username -- app.sniffrweb.com/kitty
+    // (see client/src/App.jsx's top-level catch-all route) hits this exact
+    // endpoint with "kitty" instead of a numeric id, so both lookups need
+    // to resolve to the same response shape.
+    const stats = isNaN(petId)
+      ? await PetRepo.getProfileWithStatsByUsername(req.params.id)
+      : await PetRepo.getProfileWithStats(petId);
     if (!stats) return res.status(404).json({ error: 'NOT_FOUND' });
 
     // Chat, matches, and calls all already enforce blocks (returning 403
@@ -449,7 +480,7 @@ router.get('/:id', async (req, res) => {
       stats.is_champion = true;
       stats.champion_area = champ.area;
     }
-    const posts = await PostRepo.getByPetId(petId);
+    const posts = await PostRepo.getByPetId(stats.id);
     res.json({ pet: stats, posts });
   } catch (err) {
     sendServerError(res, err);

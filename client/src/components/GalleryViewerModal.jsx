@@ -8,17 +8,19 @@ import ReportPostModal from './ReportPostModal';
 import PostVideo from './PostVideo';
 
 const PawLikeIcon = ({ active, className = '' }) => (
-  <img
-    src="/paw-like-icon.png"
-    alt="Like"
-    className={`object-contain transition-all duration-200 ${className} ${active ? '' : 'opacity-60 dark:invert'}`}
-    style={{
-      filter: active
-        ? 'invert(79%) sepia(29%) saturate(836%) hue-rotate(311deg) brightness(102%) contrast(94%) drop-shadow(0 2px 6px rgba(244,167,185,0.4))'
-        : 'none'
-    }}
-    draggable={false}
-  />
+  <span className={`inline-flex items-center justify-center rounded-full transition-all duration-200 ${active ? 'bg-primary/15 dark:bg-primary/25 p-1.5 scale-110' : 'p-1.5'}`}>
+    <img
+      src="/paw-like-icon.png"
+      alt="Like"
+      className={`object-contain transition-all duration-200 ${className} ${active ? '' : 'opacity-60 dark:invert'}`}
+      style={{
+        filter: active
+          ? 'invert(79%) sepia(29%) saturate(836%) hue-rotate(311deg) brightness(102%) contrast(94%) drop-shadow(0 2px 6px rgba(244,167,185,0.4))'
+          : 'none'
+      }}
+      draggable={false}
+    />
+  </span>
 );
 
 const BoneIcon = ({ className = '' }) => (

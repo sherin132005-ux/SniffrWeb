@@ -62,6 +62,12 @@ const PAGE_META = [
   { match: (p) => p === '/spotlight', meta: { title: 'Spotlight', description: "See today's Spotlight pets on Sniffr.", noindex: true } },
   { match: (p) => p.startsWith('/community'), meta: { title: 'Community', noindex: true } },
   { match: (p) => p.startsWith('/admin'), meta: { title: 'Admin', noindex: true } },
+  // Catch-all for the top-level pet-profile route (app.sniffrweb.com/kitty)
+  // -- every other single-segment path is matched by name above, so
+  // reaching this means the :id route is handling a username. If it turns
+  // out not to resolve to a real pet, ProfilePage itself renders
+  // NotFoundPage; this is just the title/meta while that's being decided.
+  { match: (p) => p.split('/').filter(Boolean).length === 1, meta: { title: 'Profile', noindex: true } },
 ];
 
 function getPageMeta(pathname) {
@@ -308,6 +314,30 @@ export default function App() {
               <ProtectedRoute>
                 <MainLayout>
                   <AdminPaymentsPage />
+                </MainLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Top-level pet-profile URL (app.sniffrweb.com/kitty), matching
+              Instagram/TikTok-style profile links -- must stay the LAST
+              route before the 404 fallback. React Router v6 ranks static
+              paths above dynamic ones regardless of declaration order, so
+              this can never shadow /home, /chat, etc.; the reserved-word
+              check at pet-username creation time (see
+              server/utils/petUsername.js) is what actually prevents a pet
+              from ever being named after one of those pages in the first
+              place. :id reuses ProfilePage's existing param name -- see
+              ProfilePage.jsx's loadProfile(), which already passes
+              whatever this value is straight to GET /api/profile/:id,
+              and that route already resolves either a numeric id or a
+              username. */}
+          <Route
+            path="/:id"
+            element={
+              <ProtectedRoute>
+                <MainLayout>
+                  <ProfilePage />
                 </MainLayout>
               </ProtectedRoute>
             }
